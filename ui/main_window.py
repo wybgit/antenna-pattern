@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QCheckBox, QSpinBox, QLineEdit, QMenuBar, QMenu,
                                 QStatusBar, QToolBar, QStyle, QColorDialog, QMessageBox,
                                 QListWidget, QSplitter, QFrame, QScrollArea, QSlider,
-                                QDoubleSpinBox)
+                                QDoubleSpinBox, QDialog, QDialogButtonBox)
 from PySide6.QtCore import Qt, QSettings, QSize, QTimer
 from PySide6.QtGui import QAction, QIcon, QPixmap
 import matplotlib.pyplot as plt
@@ -380,16 +380,19 @@ class MainWindow(QMainWindow):
         
         # 检查是否在图片边界内
         if bbox.contains(x, y):
-            # 检查是否在调整大小的角落区域（右下角）
-            corner_size = 0.02  # 角落区域大小
-            if (x > bbox.x1 - corner_size and x < bbox.x1 and 
-                y > bbox.y0 and y < bbox.y0 + corner_size):
-                self.image_resizing = True
-                self.resize_start_size = self.image_size.copy()
-                self.resize_corner = [x, y]
+            if event.button == 3:  # 右键点击
+                self.on_image_right_click(event)
             else:
-                self.image_dragging = True
-                self.drag_start = [x - self.image_position[0], y - self.image_position[1]]
+                # 检查是否在调整大小的角落区域（右下角）
+                corner_size = 0.02  # 角落区域大小
+                if (x > bbox.x1 - corner_size and x < bbox.x1 and 
+                    y > bbox.y0 and y < bbox.y0 + corner_size):
+                    self.image_resizing = True
+                    self.resize_start_size = self.image_size.copy()
+                    self.resize_corner = [x, y]
+                else:
+                    self.image_dragging = True
+                    self.drag_start = [x - self.image_position[0], y - self.image_position[1]]
         
     def on_mouse_release(self, event):
         """处理鼠标释放事件"""
@@ -417,28 +420,43 @@ class MainWindow(QMainWindow):
             
             self.image_position = [new_x, new_y]
             self.update_image_position()
+            self.canvas.draw()
             
         elif self.image_resizing and self.resize_corner and self.resize_start_size:
-            # 计算大小变化
-            dx = x - self.resize_corner[0]
-            dy = y - self.resize_corner[1]
+            # 获取当前DPI和画布大小
+            dpi = self.figure.dpi
+            canvas_width = self.canvas.width()
+            canvas_height = self.canvas.height()
             
-            # 保持纵横比
+            # 计算鼠标移动的距离（像素）
+            dx = (x - self.resize_corner[0]) * canvas_width
+            dy = (y - self.resize_corner[1]) * canvas_height
+            
+            # 计算新的大小（保持纵横比）
+            original_ratio = self.resize_start_size[0] / self.resize_start_size[1]
             if abs(dx) > abs(dy):
-                scale = 1 + dx / self.resize_start_size[0]
+                new_width = self.resize_start_size[0] * canvas_width + dx
+                new_height = new_width / original_ratio
             else:
-                scale = 1 + dy / self.resize_start_size[1]
-                
-            # 限制缩放范围
-            scale = max(0.1, min(scale, 2.0))
+                new_height = self.resize_start_size[1] * canvas_height + dy
+                new_width = new_height * original_ratio
             
-            # 更新图片大小
+            # 限制最小和最大大小
+            min_size = 20  # 最小20像素
+            max_width = canvas_width * 0.8  # 最大为画布的80%
+            max_height = canvas_height * 0.8
+            
+            new_width = max(min_size, min(new_width, max_width))
+            new_height = max(min_size, min(new_height, max_height))
+            
+            # 转换为相对大小
             self.image_size = [
-                self.resize_start_size[0] * scale,
-                self.resize_start_size[1] * scale
+                (new_width / dpi) / (canvas_width / dpi),
+                (new_height / dpi) / (canvas_height / dpi)
             ]
             
             self.update_image_position()
+            self.canvas.draw()
             
         # 更新鼠标样式
         if not self.image_dragging and not self.image_resizing:
@@ -517,43 +535,37 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'ax'):
             # 如果ax不存在，创建一个新的
             self.figure.clear()
-            if hasattr(self, 'image_ax'):
-                # 如果有图片子图，创建分割布局
-                gs = self.figure.add_gridspec(1, 2)
-                if self.is_3d_view:
-                    self.ax = self.figure.add_subplot(gs[0], projection='3d')
-                else:
-                    self.ax = self.figure.add_subplot(gs[0], projection='polar')
-                    self.ax.grid(True)
-                self.image_ax = self.figure.add_subplot(gs[1])
-                self.image_ax.axis('off')
-                
-                # 如果有保存的图片，重新显示
-                if hasattr(self, 'current_image'):
-                    img = plt.imread(self.current_image)
-                    self.image_ax.imshow(img)
+            if self.is_3d_view:
+                self.ax = self.figure.add_subplot(111, projection='3d')
             else:
-                # 如果没有图片子图，使用整个画布
-                if self.is_3d_view:
-                    self.ax = self.figure.add_subplot(111, projection='3d')
-                else:
-                    self.ax = self.figure.add_subplot(111, projection='polar')
-                    self.ax.grid(True)
+                self.ax = self.figure.add_subplot(111, projection='polar')
+                self.ax.grid(True)
+        else:
+            self.ax.clear()
         
-        self.ax.clear()
+        # 确保主图在最底层
+        self.ax.set_zorder(1)
+        self.ax.patch.set_alpha(0)  # 设置背景透明
         
         if self.is_3d_view:
             self.update_3d_plot()
         else:
             self.update_2d_plot()
             
-        # 如果有图片子图，调整布局
-        if hasattr(self, 'image_ax'):
-            self.figure.tight_layout()
+        # 如果有图片，重新设置其位置和大小
+        if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+            self.update_image_position()
             
+        # 调整布局以确保图例不被遮挡
+        self.figure.tight_layout()
+        
+        # 确保图例在最顶层
+        if hasattr(self.ax, 'legend_') and self.ax.legend_ is not None:
+            self.ax.legend_.set_zorder(10)
+        
         self.canvas.draw()
         self.plot_saved = False  # 标记图像未保存
-        
+
     def update_2d_plot(self):
         """更新2D极坐标图"""
         # 绘制所有曲线
@@ -580,7 +592,8 @@ class MainWindow(QMainWindow):
                         linestyle=plot['line_style'],
                         linewidth=plot['line_width'],
                         color=plot['color'],
-                        label=label)
+                        label=label,
+                        zorder=5)  # 确保曲线在图片上方
                         
         self.ax.set_theta_zero_location('N')  # 设置0度在北方向
         self.ax.set_theta_direction(-1)  # 设置角度顺时针方向
@@ -590,10 +603,11 @@ class MainWindow(QMainWindow):
         self.ax.set_xticks(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315]))
         self.ax.set_xticklabels(['0°', '45°', '90°', '135°', '180°', '225°', '270°', '315°'])
         
-        # 添加图例
+        # 添加图例并设置位置
         if self.current_plots:
-            self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-            
+            legend = self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+            legend.set_zorder(10)  # 确保图例在最顶层
+
     def update_3d_plot(self):
         """更新3D方向图"""
         if not self.current_plots:
@@ -912,41 +926,222 @@ class MainWindow(QMainWindow):
                 # 计算图片的宽高比
                 img_ratio = img.shape[1] / img.shape[0]  # width / height
                 
-                # 根据图片比例调整显示大小，保持纵横比
-                if img_ratio > 1:  # 宽图
-                    self.image_size = [0.4, 0.4 / img_ratio]
-                else:  # 高图
-                    self.image_size = [0.4 * img_ratio, 0.4]
+                # 设置固定大小为200像素
+                target_size = 200  # 像素
                 
-                # 重置图片位置到中央
+                # 获取画布的实际像素大小和DPI
+                canvas_width = self.canvas.width()
+                canvas_height = self.canvas.height()
+                dpi = self.figure.dpi
+                
+                # 计算画布的英寸大小
+                canvas_width_inches = canvas_width / dpi
+                canvas_height_inches = canvas_height / dpi
+                
+                # 计算目标大小（英寸）
+                if img_ratio > 1:  # 宽图
+                    target_width_inches = target_size / dpi
+                    target_height_inches = target_width_inches / img_ratio
+                else:  # 高图
+                    target_height_inches = target_size / dpi
+                    target_width_inches = target_height_inches * img_ratio
+                
+                # 转换为相对大小
+                self.image_size = [
+                    target_width_inches / canvas_width_inches,
+                    target_height_inches / canvas_height_inches
+                ]
+                
+                # 将图片位置设置在画布中央
                 self.image_position = [0.5, 0.5]
                 
                 # 创建或更新图片子图
-                if not hasattr(self, 'image_ax'):
-                    self.image_ax = self.figure.add_axes([0, 0, 1, 1])
-                    self.image_ax.patch.set_alpha(0)  # 设置背景透明
+                if hasattr(self, 'image_ax'):
+                    self.figure.delaxes(self.image_ax)
+                
+                # 创建新的图片子图，设置初始位置和大小
+                x = self.image_position[0] - self.image_size[0] / 2
+                y = self.image_position[1] - self.image_size[1] / 2
+                self.image_ax = self.figure.add_axes([x, y, self.image_size[0], self.image_size[1]])
+                self.image_ax.patch.set_alpha(0)  # 设置背景透明
+                
+                # 连接右键菜单事件
+                self.canvas.mpl_connect('button_press_event', self.on_image_right_click)
                 
                 # 清除并显示图片
                 self.image_ax.clear()
                 self.image_ax.imshow(img, aspect='equal')  # 使用equal保持原始比例
                 self.image_ax.axis('off')
                 
-                # 设置图片在子图中的位置和大小
-                self.update_image_position()
-                
                 # 保存图片文件路径和数据
                 self.current_image = file_name
                 self.current_image_data = img
                 
-                # 将图片子图置于顶层
-                self.image_ax.set_zorder(10)
+                # 将图片子图置于顶层，但在图例之下
+                self.image_ax.set_zorder(9)  # 设置较低的zorder
                 
                 # 更新主图
-                self.canvas.draw()
+                self.update_plot()  # 重新绘制主图以确保正确的层级关系
                 
             except Exception as e:
                 QMessageBox.critical(self, self.lang.get('error'),
                                    f"{self.lang.get('image_error')}: {str(e)}")
+
+    def on_image_right_click(self, event):
+        """处理图片右键点击事件"""
+        if not hasattr(self, 'image_ax') or not event.inaxes or event.button != 3:  # 3表示右键
+            return
+            
+        # 检查点击是否在图片区域内
+        bbox = self.image_ax.get_position()
+        x, y = event.x / self.canvas.width(), event.y / self.canvas.height()
+        
+        if bbox.contains(x, y):
+            # 创建右键菜单
+            menu = QMenu(self)
+            
+            # 添加修改大小的动作
+            size_action = menu.addAction(self.lang.get('modify_size'))
+            size_action.triggered.connect(self.modify_image_size)
+            
+            # 添加修改位置的动作
+            position_action = menu.addAction(self.lang.get('modify_position'))
+            position_action.triggered.connect(self.modify_image_position)
+            
+            # 显示菜单
+            menu.exec_(self.canvas.mapToGlobal(event.guiEvent.pos()))
+
+    def modify_image_size(self):
+        """修改图片大小"""
+        if not hasattr(self, 'image_ax'):
+            return
+            
+        # 获取画布的实际像素大小和DPI
+        canvas_width = self.canvas.width()
+        canvas_height = self.canvas.height()
+        dpi = self.figure.dpi
+        
+        # 计算当前图片的像素大小
+        current_width = self.image_size[0] * canvas_width
+        current_height = self.image_size[1] * canvas_height
+        
+        # 创建对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.lang.get('modify_size'))
+        layout = QVBoxLayout(dialog)
+        
+        # 添加宽度输入
+        width_layout = QHBoxLayout()
+        width_layout.addWidget(QLabel(self.lang.get('width')))
+        width_spin = QSpinBox()
+        width_spin.setRange(10, int(canvas_width * 0.8))  # 限制最大宽度为画布的80%
+        width_spin.setValue(int(current_width))
+        width_layout.addWidget(width_spin)
+        width_layout.addWidget(QLabel('px'))
+        layout.addLayout(width_layout)
+        
+        # 添加高度输入
+        height_layout = QHBoxLayout()
+        height_layout.addWidget(QLabel(self.lang.get('height')))
+        height_spin = QSpinBox()
+        height_spin.setRange(10, int(canvas_height * 0.8))  # 限制最大高度为画布的80%
+        height_spin.setValue(int(current_height))
+        height_layout.addWidget(height_spin)
+        height_layout.addWidget(QLabel('px'))
+        layout.addLayout(height_layout)
+        
+        # 添加保持纵横比的复选框
+        aspect_cb = QCheckBox(self.lang.get('keep_aspect_ratio'))
+        aspect_cb.setChecked(True)
+        layout.addWidget(aspect_cb)
+        
+        # 计算原始纵横比
+        original_ratio = current_width / current_height if current_height > 0 else 1
+        
+        # 当宽度改变时更新高度（如果保持纵横比）
+        def on_width_changed(value):
+            if aspect_cb.isChecked():
+                height_spin.setValue(int(value / original_ratio))
+                
+        # 当高度改变时更新宽度（如果保持纵横比）
+        def on_height_changed(value):
+            if aspect_cb.isChecked():
+                width_spin.setValue(int(value * original_ratio))
+        
+        width_spin.valueChanged.connect(on_width_changed)
+        height_spin.valueChanged.connect(on_height_changed)
+        
+        # 添加确定和取消按钮
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            Qt.Horizontal, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            # 获取新的像素大小
+            new_width_pixels = width_spin.value()
+            new_height_pixels = height_spin.value()
+            
+            # 计算画布的英寸大小
+            canvas_width_inches = canvas_width / dpi
+            canvas_height_inches = canvas_height / dpi
+            
+            # 将像素转换为英寸
+            new_width_inches = new_width_pixels / dpi
+            new_height_inches = new_height_pixels / dpi
+            
+            # 更新相对大小
+            self.image_size = [
+                new_width_inches / canvas_width_inches,
+                new_height_inches / canvas_height_inches
+            ]
+            
+            self.update_image_position()
+            self.canvas.draw()
+
+    def modify_image_position(self):
+        """修改图片位置"""
+        if not hasattr(self, 'image_ax'):
+            return
+            
+        # 创建对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.lang.get('modify_position'))
+        layout = QVBoxLayout(dialog)
+        
+        # 添加X坐标输入
+        x_layout = QHBoxLayout()
+        x_layout.addWidget(QLabel('X (0-100%):'))
+        x_spin = QSpinBox()
+        x_spin.setRange(0, 100)
+        x_spin.setValue(int(self.image_position[0] * 100))
+        x_layout.addWidget(x_spin)
+        layout.addLayout(x_layout)
+        
+        # 添加Y坐标输入
+        y_layout = QHBoxLayout()
+        y_layout.addWidget(QLabel('Y (0-100%):'))
+        y_spin = QSpinBox()
+        y_spin.setRange(0, 100)
+        y_spin.setValue(int(self.image_position[1] * 100))
+        y_layout.addWidget(y_spin)
+        layout.addLayout(y_layout)
+        
+        # 添加确定和取消按钮
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            Qt.Horizontal, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            # 更新位置
+            self.image_position = [x_spin.value() / 100, y_spin.value() / 100]
+            self.update_image_position()
+            self.canvas.draw()
 
     def update_image_position(self):
         """更新图片位置和大小"""
@@ -957,7 +1152,9 @@ class MainWindow(QMainWindow):
             
             # 设置子图的位置和大小
             self.image_ax.set_position([x, y, self.image_size[0], self.image_size[1]])
-            self.canvas.draw()
+            
+            # 确保图片在正确的层级
+            self.image_ax.set_zorder(9)  # 在曲线下方，在主图上方
 
     def remove_image(self):
         """移除图片"""

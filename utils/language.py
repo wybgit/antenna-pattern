@@ -61,7 +61,12 @@ class Language:
                 'cancel': '取消',
                 'min_db': '最小增益(dB)',
                 'max_db': '最大增益(dB)',
-                'auto_range': '自动范围'
+                'auto_range': '自动范围',
+                'modify_size': '修改大小',
+                'modify_position': '修改位置',
+                'width': '宽度',
+                'height': '高度',
+                'keep_aspect_ratio': '保持纵横比'
             },
             'en': {
                 'title': 'Antenna Pattern Visualization',
@@ -122,7 +127,12 @@ class Language:
                 'remove_image': 'Remove Image',
                 'select_image': 'Select Image',
                 'image_filter_all': 'Image Files (*.png *.jpg *.jpeg *.bmp)',
-                'image_error': 'Image Loading Error'
+                'image_error': 'Image Loading Error',
+                'modify_size': 'Modify Size',
+                'modify_position': 'Modify Position',
+                'width': 'Width',
+                'height': 'Height',
+                'keep_aspect_ratio': 'Keep Aspect Ratio'
             }
         }
     

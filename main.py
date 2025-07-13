@@ -1,10 +1,25 @@
 import sys
 import os
+import platform
+import PySide6
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
-# 设置Qt平台
-os.environ["QT_QPA_PLATFORM"] = "xcb"
+# 设置 PySide6 的包路径
+dirname = os.path.dirname(PySide6.__file__)
+plugin_path = os.path.join(dirname, 'plugins', 'platforms')
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = plugin_path
+
+# 根据操作系统设置合适的Qt平台
+system = platform.system().lower()
+if system == "linux":
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+elif system == "windows":
+    # Windows下不需要特别设置平台，会自动使用windows平台插件
+    pass
+elif system == "darwin":
+    # macOS下使用cocoa平台
+    os.environ["QT_QPA_PLATFORM"] = "cocoa"
 
 def main():
     app = QApplication(sys.argv)

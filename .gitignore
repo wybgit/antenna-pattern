@@ -75,4 +75,28 @@ output/
 # matplotlib生成的缓存
 .matplotlib/
 fontList.cache
-tex.cache/ 
+tex.cache/
+
+# Additional Python specific
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.Python
+*.so
+
+# Additional build and dist
+*.manifest
+*.spec
+build/
+dist/
+
+# Additional IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Additional temp files
+*.bak
+*.tmp
+*~ 

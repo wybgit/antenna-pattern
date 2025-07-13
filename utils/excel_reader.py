@@ -4,7 +4,8 @@ import os
 
 class AntennaDataReader:
     def __init__(self, file_path):
-        self.file_path = file_path
+        # 规范化文件路径，确保跨平台兼容
+        self.file_path = os.path.normpath(file_path)
         self.data = None
         self.frequencies = []
         self.theta_angles = []
@@ -15,10 +16,20 @@ class AntennaDataReader:
         
     def load_data(self):
         """加载数据文件"""
+        # 使用 os.path 处理文件扩展名，确保跨平台兼容
         ext = os.path.splitext(self.file_path)[1].lower()
         try:
             if ext == '.csv':
-                self.data = pd.read_csv(self.file_path, encoding='utf-8-sig')  # Use UTF-8 with BOM
+                # 尝试不同的编码方式
+                encodings = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312']
+                for encoding in encodings:
+                    try:
+                        self.data = pd.read_csv(self.file_path, encoding=encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                if self.data is None:
+                    raise Exception("无法以支持的编码方式读取CSV文件")
             else:
                 self.data = pd.read_excel(self.file_path)
             self.process_data()
