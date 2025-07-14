@@ -66,9 +66,6 @@ Thumbs.db
 天线方向图可视化工具.exe
 
 # 测试数据和临时文件
-*.xlsx
-*.xls
-*.csv
 temp/
 output/
 
