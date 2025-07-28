@@ -234,37 +234,36 @@ class AntennaDataReader:
         # 3. 获取主要角度的增益 (对应界面0-180度)
         gains_0_to_180 = self.gains[frequency][:, primary_phi_idx]
         
-        # 4. 获取相反角度的增益并倒序 (对应界面181-360度)
-        gains_181_to_360 = self.gains[frequency][:, opposite_phi_idx][::-1]
+        # 4. 获取相反角度的增益 (对应界面181-360度), 不倒序
+        gains_181_to_360 = self.gains[frequency][:, opposite_phi_idx]
         
         # 5. 合并数据
         combined_gains = np.concatenate((gains_0_to_180, gains_181_to_360))
         
         # 6. Log详细信息
         if self.debug:
-            primary_phi_val = phi_angles[primary_phi_idx]
-            opposite_phi_val = phi_angles[opposite_phi_idx]
+            primary_theta_val = phi_angles[primary_phi_idx]
+            opposite_theta_val = phi_angles[opposite_phi_idx]
             
             print(f"\n[*] --- Theta Cut ({phi_angle} deg) Processing ---")
-            print(f"[*] Primary Phi angle: {primary_phi_val} (requested {phi_angle}) for 0-180 deg display")
-            print(f"[*] Opposite Phi angle: {opposite_phi_val} (requested {opposite_phi_angle_req}) for 181-360 deg display")
+            print(f"[*] Primary Theta angle: {primary_theta_val} (requested {phi_angle}) for 0-180 deg display")
+            print(f"[*] Opposite Theta angle: {opposite_theta_val} (requested {opposite_phi_angle_req}) for 181-360 deg display")
             
             print("[*] Detailed data mapping:")
-            print("[*] Display Angle | Source (Theta, Phi) | Gain")
+            print("[*] Display Angle | Source (Phi, Theta) | Gain")
             print("-" * 50)
 
             # Log for 0-180 degrees
             for i, gain in enumerate(gains_0_to_180):
                 display_angle = i
-                source_theta = theta_angles[i]
-                print(f"[*] {display_angle:<13} | ({source_theta:<6}, {primary_phi_val:<4}) | {gain}")
+                source_phi = theta_angles[i]
+                print(f"[*] {display_angle:<13} | ({primary_theta_val:<6}, {theta_angles[i]:<4}) | {gain}")
 
             # Log for 181-360 degrees
-            reversed_theta_angles = theta_angles[::-1]
             for i, gain in enumerate(gains_181_to_360):
                 display_angle = len(gains_0_to_180) + i
-                source_theta = reversed_theta_angles[i]
-                print(f"[*] {display_angle:<13} | ({source_theta:<6}, {opposite_phi_val:<4}) | {gain}")
+                source_phi = theta_angles[i] # Use normal theta_angles as requested
+                print(f"[*] {display_angle:<13} | ({opposite_theta_val:<6}, {theta_angles[i]:<4}) | {gain}")
             print("-" * 50)
             
         return combined_gains
@@ -294,7 +293,7 @@ class AntennaDataReader:
             print(f"[*] Selected Theta angle: {selected_theta} (requested {theta_angle})")
             
             print("[*] Detailed data mapping:")
-            print("[*] Display Angle | Source (Theta, Phi) | Gain")
+            print("[*] Display Angle | Source (Phi, Theta) | Gain")
             print("-" * 50)
 
             for i, gain in enumerate(gains):

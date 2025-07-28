@@ -860,7 +860,7 @@ class MainWindow(QMainWindow):
             if plane_type == 'Theta':
                 # 复制角度和增益数据
                 full_angles = np.concatenate([theta_angles, theta_angles + 180])
-                full_gains = np.concatenate([gains, gains])
+                full_gains = gains
                 
                 # 确保角度在-180到180度范围内
                 full_angles = np.where(full_angles > 180, full_angles - 360, full_angles)
@@ -1630,34 +1630,36 @@ class MainWindow(QMainWindow):
             theta_angles = self.data_reader.theta_angles_map[self.data_reader.frequencies[freq_idx]]
             
             primary_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - plane_angle))
-            opposite_phi_angle_req = plane_angle + 180
-            search_phi_angle = opposite_phi_angle_req - 360 if opposite_phi_angle_req > 180 else opposite_phi_angle_req
-            opposite_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - search_phi_angle))
+            opposite_phi_angle_req = -plane_angle
+            opposite_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - opposite_phi_angle_req))
 
-            gains_0_to_180 = self.data_reader.gains[self.data_reader.frequencies[freq_idx]][:, primary_phi_idx]
-            gains_181_to_360 = self.data_reader.gains[self.data_reader.frequencies[freq_idx]][:, opposite_phi_idx][::-1]
+            # These variables are named primary_theta_val/opposite_theta_val in the log in excel_reader.py
+            # to represent the Phi angle for the cut, so we replicate that here for consistency.
+            primary_theta_val_for_table = phi_angles[primary_phi_idx]
+            opposite_theta_val_for_table = phi_angles[opposite_phi_idx]
 
+            gains_primary_phi = self.data_reader.gains[self.data_reader.frequencies[freq_idx]][:, primary_phi_idx]
+            gains_opposite_phi = self.data_reader.gains[self.data_reader.frequencies[freq_idx]][:, opposite_phi_idx]
+
+            # Normalization: Combine, normalize, then split
             if plot['normalized']:
-                # To normalize correctly, we must combine, normalize, then split back.
-                combined_gains = np.concatenate((gains_0_to_180, gains_181_to_360))
-                normalized_gains = self.data_reader.normalize_data(combined_gains)
-                gains_0_to_180 = normalized_gains[:len(gains_0_to_180)]
-                gains_181_to_360 = normalized_gains[len(gains_0_to_180):]
+                combined_gains_for_norm = np.concatenate((gains_primary_phi, gains_opposite_phi))
+                normalized_combined_gains = self.data_reader.normalize_data(combined_gains_for_norm)
+                gains_primary_phi_normalized = normalized_combined_gains[:len(gains_primary_phi)]
+                gains_opposite_phi_normalized = normalized_combined_gains[len(gains_primary_phi):]
             else:
-                # Ensure gains are numpy arrays for consistency
-                gains_0_to_180 = np.array(gains_0_to_180)
-                gains_181_to_360 = np.array(gains_181_to_360)
+                gains_primary_phi_normalized = np.array(gains_primary_phi)
+                gains_opposite_phi_normalized = np.array(gains_opposite_phi)
 
-
-            for i, gain in enumerate(gains_0_to_180):
-                display_angle = theta_angles[i]
-                table_data.append([display_angle, f"({theta_angles[i]}, {phi_angles[primary_phi_idx]})", f"{gain:.2f}"])
+            # Populate table for the first half (Primary Phi)
+            for i, gain in enumerate(gains_primary_phi_normalized):
+                display_angle_for_table = i # Match log's Display Angle
+                table_data.append([display_angle_for_table, f"({primary_theta_val_for_table}, {theta_angles[i]})", f"{gain:.2f}"])
             
-            reversed_thetas = theta_angles[::-1]
-            for i, gain in enumerate(gains_181_to_360):
-                # The display angle for the second half is the reflection
-                display_angle = 360 - reversed_thetas[i]
-                table_data.append([display_angle, f"({reversed_thetas[i]}, {phi_angles[opposite_phi_idx]})", f"{gain:.2f}"])
+            # Populate table for the second half (Opposite Phi - NOT reversed)
+            for i, gain in enumerate(gains_opposite_phi_normalized):
+                display_angle_for_table = len(gains_primary_phi_normalized) + i # Match log's Display Angle
+                table_data.append([display_angle_for_table, f"({opposite_theta_val_for_table}, {theta_angles[i]})", f"{gain:.2f}"])
 
         else: # Phi cut
             theta_idx = min(range(len(self.data_reader.theta_angles)), key=lambda i: abs(self.data_reader.theta_angles[i] - plane_angle))
