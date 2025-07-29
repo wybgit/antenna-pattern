@@ -14,9 +14,10 @@ class AntennaDataReader:
         self.theta_angles = []
         self.phi_angles = []
         self.gains = {}
-        self.polarizations = ['Total']
+        self.polarizations = ['Total']  # Only support Total polarization
         self.theta_angles_map = {}
         self.phi_angles_map = {}
+        self.total_data = {}  # Store Total data for each frequency
         self.load_data()
 
     def load_data(self):
@@ -53,144 +54,240 @@ class AntennaDataReader:
 
     def process_data(self):
         """
-        Process data from CSV or Excel.
-        - Find frequency blocks.
-        - A block starts with a row containing the frequency in the 2nd column.
-        - Phi angles are in the same row, starting from the 4th column.
-        - Data rows start 1-2 rows below, with Theta in the 3rd column.
+        Process data from CSV or Excel with new structure understanding:
+        - A column contains polarization identifiers: Total, Theta, Phi
+        - Each polarization block can contain multiple frequencies
+        - Look for "Theta Angle (degree)" rows to identify frequency data blocks
+        - Extract frequency from the same row as "Theta Angle (degree)"
+        - Only process Total blocks
         """
         if self.debug:
-            print("\n[*] --- Starting Data Processing ---")
+            print("\n[*] --- Starting Data Processing (Total Only) ---")
 
         self.frequencies = []
         self.theta_angles_map = {}
         self.phi_angles_map = {}
         self.gains = {}
+        self.total_data = {}
         
-        i = 0
-        while i < len(self.data):
+        # Find all data blocks by looking for "Theta Angle (degree)" rows
+        data_blocks = []
+        
+        for i in range(len(self.data)):
             row = self.data.iloc[i]
             
-            try:
-                # Check for a potential frequency header row
-                # Condition: 2nd cell is numeric (frequency)
-                freq_val = float(row.iloc[1])
-                
-                # Heuristic: Check if there are multiple numeric values after col 3, likely phi angles
-                if pd.to_numeric(row.iloc[3:], errors='coerce').notna().sum() > 2:
-                    # If the row contains "Total", check if it's followed by "Frequency (MHz)"
-                    row_str_list = [str(s).lower() for s in row.tolist()]
-                    if 'total' in row_str_list:
+            # Look for "Theta Angle (degree)" in any column
+            for j in range(len(row)):
+                cell_val = str(row.iloc[j]).strip() if pd.notna(row.iloc[j]) else ''
+                if 'theta angle' in cell_val.lower() and 'degree' in cell_val.lower():
+                    # Found a potential data block, extract frequency from the same row
+                    frequency = None
+                    for k in range(len(row)):
                         try:
-                            total_index = row_str_list.index('total')
-                            # Check if the next cell contains "frequency"
-                            if not (total_index + 1 < len(row_str_list) and 'frequency' in row_str_list[total_index + 1]):
-                                if self.debug:
-                                    print(f"[*] Row {i} contains 'Total' but not 'Frequency (MHz)' next to it. Skipping.")
-                                i += 1
-                                continue
-                        except ValueError:
-                            # Should not happen if 'total' is in list, but as a safeguard
-                            pass
-
-                    current_freq = freq_val
-                    if self.debug:
-                        print(f"\n[*] Found frequency block for {current_freq} MHz at row {i}")
-                    
-                    if current_freq not in self.frequencies:
-                        self.frequencies.append(current_freq)
-                    
-                    # Extract Phi angles from this row (starting at column index 3)
-                    phi_angles = [float(p) for p in row.iloc[3:] if pd.notna(p) and isinstance(p, (int, float))]
-                    self.phi_angles_map[current_freq] = phi_angles
-                    if self.debug:
-                        print(f"[*] Extracted Phi angles: {phi_angles}")
-                    
-                    # Data rows are expected to start 1 or 2 rows below the header
-                    # We will search for the first valid data row
-                    data_start_row = -1
-                    for k in range(1, 4):
-                        if i + k < len(self.data):
-                            try:
-                                # A data row has a numeric theta in column 2
-                                float(self.data.iloc[i + k, 2])
-                                data_start_row = i + k
+                            freq_val = float(row.iloc[k])
+                            if 1000 <= freq_val <= 10000:  # Reasonable frequency range
+                                frequency = freq_val
                                 break
-                            except (ValueError, TypeError, IndexError):
-                                continue
+                        except (ValueError, TypeError):
+                            pass
                     
-                    if data_start_row == -1:
+                    if frequency:
+                        # Determine which polarization block this belongs to
+                        polarization_type = self._find_polarization_block(i)
+                        
+                        data_blocks.append({
+                            'row': i,
+                            'frequency': frequency,
+                            'polarization': polarization_type
+                        })
+                        
                         if self.debug:
-                            print(f"[!] Could not find start of data for frequency {current_freq}")
-                        i += 1
-                        continue
-
-                    theta_angles_for_freq = []
-                    gains_for_freq = []
-                    
-                    j = data_start_row
-                    while j < len(self.data):
-                        data_row = self.data.iloc[j]
-                        
-                        # Check for summary section and stop parsing if found
-                        try:
-                            first_cell_str = str(data_row.iloc[0])
-                            if 'totalpoint' in first_cell_str.lower():
-                                if self.debug:
-                                    print(f"[*] Found summary section at row {j}. Stopping data processing for this block.")
-                                break
-                        except IndexError:
-                            pass
-
-                        try:
-                            # A data row should have a numeric theta angle in the 3rd column (index 2)
-                            theta_val_candidate = data_row.iloc[2]
-                            if pd.isna(theta_val_candidate):
-                                if self.debug:
-                                    print(f"[*] End of data block for {current_freq} at row {j} (NaN theta).")
-                                break
-
-                            theta_val = float(theta_val_candidate)
-                            theta_angles_for_freq.append(theta_val)
-                            
-                            # Gain values start at column index 3
-                            num_phi = len(phi_angles)
-                            gain_values = data_row.iloc[3:3+num_phi].values.astype(float)
-                            gains_for_freq.append(gain_values)
-                            
-                            j += 1
-                        except (ValueError, TypeError, IndexError):
-                            if self.debug:
-                                print(f"[*] End of data block for {current_freq} at row {j}.")
-                            break
-                    
-                    self.theta_angles_map[current_freq] = theta_angles_for_freq
-                    self.gains[current_freq] = np.array(gains_for_freq)
-                    if self.debug:
-                        print(f"[*] Extracted {len(theta_angles_for_freq)} Theta angles.")
-                        print(f"[*] Gain matrix shape: {self.gains[current_freq].shape}")
-                        
-                    # Found and processed the first data block, so we stop.
-                    if self.debug:
-                        print("[*] First data block processed. Halting search.")
+                            print(f"[*] Found data block at row {i}: {frequency} MHz ({polarization_type})")
                     break
-            except (ValueError, TypeError, IndexError):
-                pass
+        
+        if self.debug:
+            print(f"[*] Found {len(data_blocks)} data blocks")
+        
+        # Process only Total blocks (filter out other polarizations)
+        total_data_blocks = [block for block in data_blocks if block['polarization'] == 'total']
+        
+        if self.debug:
+            print(f"[*] Found {len(total_data_blocks)} Total blocks")
+        
+        # Process each Total data block
+        for block_idx, block_info in enumerate(total_data_blocks):
+            row_idx = block_info['row']
+            frequency = block_info['frequency']
             
-            i += 1
-
+            if self.debug:
+                print(f"\n[*] Processing frequency {frequency} MHz at row {row_idx}")
+            
+            # Determine the end of this data block
+            end_row = len(self.data)
+            
+            # Look for the next data block or polarization change
+            for next_block in data_blocks:
+                if next_block['row'] > row_idx:
+                    end_row = next_block['row']
+                    break
+            
+            # Also check for polarization changes
+            for i in range(row_idx + 1, len(self.data)):
+                check_row = self.data.iloc[i]
+                first_col = str(check_row.iloc[0]).strip().lower() if pd.notna(check_row.iloc[0]) else ''
+                if first_col in ['theta', 'phi', 'total']:
+                    end_row = min(end_row, i)
+                    break
+            
+            # Extract data from this block
+            success, data = self._extract_frequency_data(row_idx, end_row, frequency)
+            
+            if success:
+                self.total_data[frequency] = data
+                self.frequencies.append(frequency)
+                if self.debug:
+                    print(f"[*] Successfully processed frequency {frequency} MHz")
+            else:
+                if self.debug:
+                    print(f"[*] Failed to process frequency {frequency} MHz")
+        
         if not self.frequencies:
-            raise Exception("No valid frequency data blocks found. Please check the file format.")
-
-        first_freq = self.frequencies[0]
-        self.theta_angles = self.theta_angles_map.get(first_freq, [])
-        self.phi_angles = self.phi_angles_map.get(first_freq, [])
+            raise Exception("No valid Total frequency data blocks found. Please check the file format.")
+        
+        # Set up default data using first frequency
+        first_freq = sorted(self.frequencies)[0]
+        
+        if first_freq in self.total_data:
+            default_data = self.total_data[first_freq]
+            self.theta_angles = default_data['theta_angles']
+            self.phi_angles = default_data['phi_angles']
+            self.theta_angles_map[first_freq] = default_data['theta_angles']
+            self.phi_angles_map[first_freq] = default_data['phi_angles']
+            self.gains[first_freq] = default_data['gains']
         
         if self.debug:
             print("\n[*] --- Data Processing Finished ---")
-            print(f"[*] Found frequencies: {self.frequencies}")
-            print(f"[*] Using Theta angles from first freq: {self.theta_angles}")
-            print(f"[*] Using Phi angles from first freq: {self.phi_angles}")
+            print(f"[*] Found frequencies: {sorted(self.frequencies)}")
+            print(f"[*] Using default frequency: {first_freq} MHz")
+            print(f"[*] Default theta angles: {len(self.theta_angles)} angles")
+            print(f"[*] Default phi angles: {len(self.phi_angles)} angles")
+    
+    def _find_polarization_block(self, row_idx):
+        """Find which polarization block a row belongs to"""
+        polarization_type = 'unknown'
+        
+        # Look backwards to find the most recent polarization identifier
+        for i in range(row_idx, -1, -1):
+            if i < len(self.data):
+                row = self.data.iloc[i]
+                first_col = str(row.iloc[0]).strip().lower() if pd.notna(row.iloc[0]) else ''
+                if first_col in ['total', 'theta', 'phi']:
+                    polarization_type = first_col
+                    break
+        
+        return polarization_type
+    
+    def _extract_frequency_data(self, start_row, end_row, frequency):
+        """Extract frequency data from a data block"""
+        try:
+            # The start_row contains "Theta Angle (degree)" and frequency
+            header_row = self.data.iloc[start_row]
+            
+            # Extract Phi angles from the header row (starting from column 3)
+            phi_angles = []
+            for col_idx in range(3, len(header_row)):
+                try:
+                    cell_val = header_row.iloc[col_idx]
+                    if pd.isna(cell_val):
+                        break
+                    # Skip text headers
+                    if isinstance(cell_val, str):
+                        continue
+                    phi_val = float(cell_val)
+                    phi_angles.append(phi_val)
+                except (ValueError, TypeError):
+                    break
+            
+            if self.debug:
+                print(f"[*] Extracted {len(phi_angles)} Phi angles: {phi_angles[:10]}...")
+            
+            # Data starts 2 rows after the header
+            data_start_row = start_row + 2
+            
+            theta_angles_for_freq = []
+            gains_for_freq = []
+            
+            # Process data rows
+            for j in range(data_start_row, end_row):
+                if j >= len(self.data):
+                    break
+                    
+                data_row = self.data.iloc[j]
+                
+                # Check for end of data (empty row or next block)
+                try:
+                    # Theta angle is in column 2
+                    theta_cell = data_row.iloc[2]
+                    if pd.isna(theta_cell):
+                        if self.debug:
+                            print(f"[*] End of data block at row {j} (NaN theta)")
+                        break
+                    
+                    # Check for next block by looking at first column
+                    first_cell = data_row.iloc[0] if not pd.isna(data_row.iloc[0]) else ""
+                    first_cell_str = str(first_cell).lower()
+                    if first_cell_str in ['total', 'theta', 'phi']:
+                        if self.debug:
+                            print(f"[*] End of data block at row {j} (found {first_cell_str})")
+                        break
+                    
+                    # Extract theta angle
+                    theta_val = float(theta_cell)
+                    theta_angles_for_freq.append(theta_val)
+                    
+                    # Extract gain values (starting from column 3)
+                    num_phi = len(phi_angles)
+                    gain_values = []
+                    for col_idx in range(3, min(3 + num_phi, len(data_row))):
+                        try:
+                            cell_val = data_row.iloc[col_idx]
+                            if pd.isna(cell_val):
+                                gain_values.append(np.nan)
+                            else:
+                                gain_val = float(cell_val)
+                                gain_values.append(gain_val)
+                        except (ValueError, TypeError):
+                            gain_values.append(np.nan)
+                    
+                    gains_for_freq.append(gain_values)
+                    
+                except (ValueError, TypeError, IndexError):
+                    if self.debug:
+                        print(f"[*] End of data block at row {j} (parsing error)")
+                    break
+            
+            # Return data for this frequency
+            if theta_angles_for_freq and gains_for_freq:
+                data = {
+                    'theta_angles': theta_angles_for_freq,
+                    'phi_angles': phi_angles,
+                    'gains': np.array(gains_for_freq)
+                }
+                
+                if self.debug:
+                    print(f"[*] Processed {len(theta_angles_for_freq)} theta angles")
+                    print(f"[*] Gain matrix shape: {np.array(gains_for_freq).shape}")
+                
+                return True, data
+            else:
+                if self.debug:
+                    print(f"[*] No valid data found for frequency {frequency}")
+                return False, None
+                
+        except Exception as e:
+            if self.debug:
+                print(f"[*] Error extracting data for frequency {frequency}: {e}")
+            return False, None
 
     def get_frequencies(self):
         return sorted(self.frequencies)
@@ -203,24 +300,82 @@ class AntennaDataReader:
         
     def get_polarizations(self):
         return self.polarizations
+    
+    def set_current_frequency(self, frequency_idx):
+        """设置当前使用的频率"""
+        if frequency_idx < 0 or frequency_idx >= len(self.frequencies):
+            return False
+            
+        frequency = self.frequencies[frequency_idx]
         
-    def get_gain_data_theta_cut(self, frequency_idx, phi_angle, polarization="Total"):
+        if frequency in self.total_data:
+            data = self.total_data[frequency]
+            self.theta_angles = data['theta_angles']
+            self.phi_angles = data['phi_angles']
+            self.theta_angles_map[frequency] = data['theta_angles']
+            self.phi_angles_map[frequency] = data['phi_angles']
+            self.gains[frequency] = data['gains']
+            
+            if self.debug:
+                print(f"[*] Switched to frequency: {frequency} MHz")
+                print(f"[*] Theta angles: {len(self.theta_angles)} angles")
+                print(f"[*] Phi angles: {len(self.phi_angles)} angles")
+            
+            return True
+        
+        return False
+    
+    def get_frequency_data(self, frequency_idx):
+        """获取指定频率的数据信息"""
+        if frequency_idx < 0 or frequency_idx >= len(self.frequencies):
+            return None
+            
+        frequency = self.frequencies[frequency_idx]
+        
+        if frequency in self.total_data:
+            data = self.total_data[frequency]
+            return {
+                'frequency': frequency,
+                'theta_count': len(data['theta_angles']),
+                'phi_count': len(data['phi_angles']),
+                'theta_range': [min(data['theta_angles']), max(data['theta_angles'])],
+                'phi_range': [min(data['phi_angles']), max(data['phi_angles'])],
+                'gain_range': [data['gains'].min(), data['gains'].max()]
+            }
+        
+        return None
+        
+    def get_gain_data_theta_cut(self, frequency_idx, phi_angle, polarization=None):
         """
         获取Theta切面的增益数据.
         为了显示0-360度的完整theta切面，这个函数:
         1. 选择请求的phi角度的数据 (例如 phi=15)，作为0-180度的显示部分.
         2. 选择其相反角度的数据 (phi=-15)，并将其倒序，作为181-360度的显示部分.
         3. 合并两部分数据.
+        
+        Args:
+            frequency_idx: 频率索引
+            phi_angle: phi角度
+            polarization: 极化类型 (为了向后兼容，但会被忽略，只使用Total数据)
         """
         if frequency_idx < 0 or frequency_idx >= len(self.frequencies):
             return None
             
         frequency = self.frequencies[frequency_idx]
-        if frequency not in self.gains:
-            return None
-            
-        phi_angles = self.phi_angles_map[frequency]
-        theta_angles = self.theta_angles_map[frequency]
+        
+        # Get data from Total data structure
+        if frequency in self.total_data:
+            data = self.total_data[frequency]
+            phi_angles = data['phi_angles']
+            theta_angles = data['theta_angles']
+            gains = data['gains']
+        else:
+            # Fallback to legacy data structure
+            if frequency not in self.gains:
+                return None
+            phi_angles = self.phi_angles_map[frequency]
+            theta_angles = self.theta_angles_map[frequency]
+            gains = self.gains[frequency]
 
         # 1. 找到最接近的主要phi角度的索引
         primary_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - phi_angle))
@@ -232,10 +387,10 @@ class AntennaDataReader:
         opposite_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - opposite_phi_angle_req))
 
         # 3. 获取主要角度的增益 (对应界面0-180度)
-        gains_0_to_180 = self.gains[frequency][:, primary_phi_idx]
+        gains_0_to_180 = gains[:, primary_phi_idx]
         
         # 4. 获取相反角度的增益 (对应界面181-360度), 不倒序
-        gains_181_to_360 = self.gains[frequency][:, opposite_phi_idx]
+        gains_181_to_360 = gains[:, opposite_phi_idx]
         
         # 5. 合并数据
         combined_gains = np.concatenate((gains_0_to_180, gains_181_to_360))
@@ -245,7 +400,7 @@ class AntennaDataReader:
             primary_theta_val = phi_angles[primary_phi_idx]
             opposite_theta_val = phi_angles[opposite_phi_idx]
             
-            print(f"\n[*] --- Theta Cut ({phi_angle} deg) Processing ---")
+            print(f"\n[*] --- Theta Cut ({phi_angle} deg, {frequency} MHz) Processing ---")
             print(f"[*] Primary Theta angle: {primary_theta_val} (requested {phi_angle}) for 0-180 deg display")
             print(f"[*] Opposite Theta angle: {opposite_theta_val} (requested {opposite_phi_angle_req}) for 181-360 deg display")
             
@@ -268,44 +423,67 @@ class AntennaDataReader:
             
         return combined_gains
         
-    def get_gain_data_phi_cut(self, frequency_idx, theta_angle, polarization="Total"):
-        """获取Phi切面的增益数据（固定theta角度，phi从0到360度）"""
+    def get_gain_data_phi_cut(self, frequency_idx, theta_angle, polarization=None):
+        """
+        获取Phi切面的增益数据（固定theta角度，phi从0到360度）
+        
+        Args:
+            frequency_idx: 频率索引
+            theta_angle: theta角度
+            polarization: 极化类型 (为了向后兼容，但会被忽略，只使用Total数据)
+        """
         if frequency_idx < 0 or frequency_idx >= len(self.frequencies):
             return None
             
         frequency = self.frequencies[frequency_idx]
-        if frequency not in self.gains:
-            return None
-            
-        theta_angles = self.theta_angles_map[frequency]
-        phi_angles = self.phi_angles_map[frequency]
+        
+        # Get data from Total data structure
+        if frequency in self.total_data:
+            data = self.total_data[frequency]
+            phi_angles = data['phi_angles']
+            theta_angles = data['theta_angles']
+            gains = data['gains']
+        else:
+            # Fallback to legacy data structure
+            if frequency not in self.gains:
+                return None
+            theta_angles = self.theta_angles_map[frequency]
+            phi_angles = self.phi_angles_map[frequency]
+            gains = self.gains[frequency]
 
         # 找到最接近的theta角度
         theta_idx = min(range(len(theta_angles)), key=lambda i: abs(theta_angles[i] - theta_angle))
         
         # 获取该theta角度下所有phi角度的增益数据
-        gains = self.gains[frequency][theta_idx, :]
+        gain_data = gains[theta_idx, :]
         
         if self.debug:
             selected_theta = theta_angles[theta_idx]
             print(f"""
-[*] --- Phi Cut ({theta_angle} deg) Processing ---""")
+[*] --- Phi Cut ({theta_angle} deg, {frequency} MHz) Processing ---""")
             print(f"[*] Selected Theta angle: {selected_theta} (requested {theta_angle})")
             
             print("[*] Detailed data mapping:")
             print("[*] Display Angle | Source (Phi, Theta) | Gain")
             print("-" * 50)
 
-            for i, gain in enumerate(gains):
+            for i, gain in enumerate(gain_data):
                 display_angle = phi_angles[i]
                 source_phi = phi_angles[i]
                 print(f"[*] {display_angle:<13} | ({selected_theta:<6}, {source_phi:<4}) | {gain}")
             print("-" * 50)
             
-        return gains
+        return gain_data
         
-    def get_gain_data(self, frequency_idx, theta_angle=None, polarization="Total"):
-        """获取增益数据（兼容旧接口）"""
+    def get_gain_data(self, frequency_idx, theta_angle=None, polarization=None):
+        """
+        获取增益数据（兼容旧接口）
+        
+        Args:
+            frequency_idx: 频率索引
+            theta_angle: theta角度
+            polarization: 极化类型 (为了向后兼容，但会被忽略，只使用Total数据)
+        """
         return self.get_gain_data_phi_cut(frequency_idx, theta_angle, polarization)
         
     def normalize_data(self, data):

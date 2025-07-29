@@ -383,7 +383,7 @@ class MainWindow(QMainWindow):
         self.plane_type_combo = QComboBox()
         self.plane_type_combo.setMinimumHeight(30)
         self.plane_type_combo.addItems(['Theta', 'Phi'])
-        self.plane_type_combo.currentIndexChanged.connect(self.on_parameter_changed)
+        self.plane_type_combo.currentIndexChanged.connect(self.on_plane_type_changed)
         plane_type_layout.addWidget(self.plane_type_combo)
         param_layout.addLayout(plane_type_layout)
         
@@ -1184,6 +1184,68 @@ class MainWindow(QMainWindow):
         polarizations = self.data_reader.get_polarizations()
         self.polarization_combo.addItems(polarizations)
         
+        # 更新切面角度选项
+        self.update_plane_angle_options()
+        
+    def on_plane_type_changed(self):
+        """当切面类型改变时更新切面角度选项"""
+        self.update_plane_angle_options()
+        self.on_parameter_changed()
+        
+    def update_plane_angle_options(self):
+        """根据切面类型和数据更新切面角度选项"""
+        if not self.data_reader:
+            return
+            
+        # 保存当前选择的角度
+        current_angle = self.plane_angle_combo.currentText()
+        
+        # 临时断开信号连接以避免递归
+        self.plane_angle_combo.currentIndexChanged.disconnect()
+        
+        try:
+            # 清空现有选项
+            self.plane_angle_combo.clear()
+            
+            plane_type = self.plane_type_combo.currentText()
+            
+            if plane_type == 'Theta':
+                # 当切面类型为Theta时，切面角度的档位和Phi的取值一致
+                phi_angles = self.data_reader.get_phi_angles()
+                # 只取大于0的值
+                valid_angles = [angle for angle in phi_angles if angle > 0]
+                angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
+            else:  # plane_type == 'Phi'
+                # 当切面类型为Phi时，切面角度和Theta取值一致
+                theta_angles = self.data_reader.get_theta_angles()
+                # 只取大于0的值
+                valid_angles = [angle for angle in theta_angles if angle > 0]
+                angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
+            
+            # 添加选项到下拉框
+            if angle_options:
+                self.plane_angle_combo.addItems(angle_options)
+                
+                # 尝试恢复之前的选择
+                if current_angle in angle_options:
+                    self.plane_angle_combo.setCurrentText(current_angle)
+                else:
+                    # 如果之前的选择不在新选项中，选择第一个
+                    self.plane_angle_combo.setCurrentIndex(0)
+            else:
+                # 如果没有有效角度，添加默认选项
+                self.plane_angle_combo.addItems(['15', '30', '45', '60', '90'])
+                
+        except Exception as e:
+            # 如果出错，使用默认角度选项
+            default_angles = [str(i) for i in range(5, 180, 5)]  # 5到175度，步进5度，排除0
+            self.plane_angle_combo.addItems(default_angles)
+            if self.debug_mode:
+                print(f"Error updating plane angle options: {e}")
+        finally:
+            # 重新连接信号
+            self.plane_angle_combo.currentIndexChanged.connect(self.on_parameter_changed)
+        
     def update_title(self):
         """更新图表标题"""
         self.ax.set_title(self.title_edit.text())
@@ -1207,14 +1269,34 @@ class MainWindow(QMainWindow):
             
     def on_parameter_changed(self):
         """当参数改变时实时更新图表"""
+        # 当频率改变时，更新数据读取器的当前频率
+        if self.data_reader:
+            current_freq_idx = self.freq_combo.currentIndex()
+            self.data_reader.set_current_frequency(current_freq_idx)
+            
+            # 频率改变时需要重新更新切面角度选项
+            self.update_plane_angle_options()
+        
         if self.active_plot_index >= 0 and self.active_plot_index < len(self.current_plots):
             plot = self.current_plots[self.active_plot_index]
+            
+            # 确保切面角度值有效
+            try:
+                plane_angle = float(self.plane_angle_combo.currentText())
+            except (ValueError, TypeError):
+                plane_angle = 0.0
+                if self.plane_angle_combo.count() > 0:
+                    try:
+                        plane_angle = float(self.plane_angle_combo.itemText(0))
+                    except:
+                        plane_angle = 0.0
+            
             plot.update({
                 'freq_idx': self.freq_combo.currentIndex(),
                 'freq_text': self.freq_combo.currentText(),
                 'polarization': self.polarization_combo.currentText(),
                 'plane_type': self.plane_type_combo.currentText(),
-                'plane_angle': float(self.plane_angle_combo.currentText()),
+                'plane_angle': plane_angle,
                 'line_style': self.line_style_combo.currentText(),
                 'line_width': self.line_width_spin.value(),
                 'normalized': self.normalize_cb.isChecked()
