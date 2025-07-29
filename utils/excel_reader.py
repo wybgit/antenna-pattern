@@ -70,7 +70,7 @@ class AntennaDataReader:
         self.gains = {}
         self.total_data = {}
         
-        # Find all data blocks by looking for "Theta Angle (degree)" rows
+        # Find all data blocks by looking for "Theta Angle" rows
         data_blocks = []
         
         for i in range(len(self.data)):
@@ -79,13 +79,13 @@ class AntennaDataReader:
             # Look for "Theta Angle (degree)" in any column
             for j in range(len(row)):
                 cell_val = str(row.iloc[j]).strip() if pd.notna(row.iloc[j]) else ''
-                if 'theta angle' in cell_val.lower() and 'degree' in cell_val.lower():
+                if 'theta angle' in cell_val.lower():
                     # Found a potential data block, extract frequency from the same row
                     frequency = None
                     for k in range(len(row)):
                         try:
                             freq_val = float(row.iloc[k])
-                            if 1000 <= freq_val <= 10000:  # Reasonable frequency range
+                            if 10 <= freq_val <= 100000:  # Reasonable frequency range
                                 frequency = freq_val
                                 break
                         except (ValueError, TypeError):
