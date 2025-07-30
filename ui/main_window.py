@@ -880,6 +880,10 @@ class MainWindow(QMainWindow):
                 full_gains = gains
                 label = f"{plot['freq_text']}, {plot['polarization']}, θ={plane_angle}°"
             
+            # 为了闭合图形，将第一个点追加到末尾
+            angles_rad = np.append(angles_rad, angles_rad[0])
+            full_gains = np.append(full_gains, full_gains[0])
+
             # 绘制方向图
             self.ax.plot(angles_rad, full_gains,
                         linestyle=plot['line_style'],
@@ -1212,14 +1216,14 @@ class MainWindow(QMainWindow):
             if plane_type == 'Theta':
                 # 当切面类型为Theta时，切面角度的档位和Phi的取值一致
                 phi_angles = self.data_reader.get_phi_angles()
-                # 只取大于0的值
-                valid_angles = [angle for angle in phi_angles if angle > 0]
+                # 只取大于等于0的值
+                valid_angles = [angle for angle in phi_angles if angle >= 0]
                 angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
             else:  # plane_type == 'Phi'
                 # 当切面类型为Phi时，切面角度和Theta取值一致
                 theta_angles = self.data_reader.get_theta_angles()
-                # 只取大于0的值
-                valid_angles = [angle for angle in theta_angles if angle > 0]
+                # 只取大于等于0的值
+                valid_angles = [angle for angle in theta_angles if angle >= 0]
                 angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
             
             # 添加选项到下拉框
