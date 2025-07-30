@@ -54,47 +54,45 @@ python main.py
 pip install pyinstaller
 ```
 
-2. 执行打包命令：
+2. 基础打包命令（推荐）：
 ```bash
-### 打包
-
-我们使用 PyInstaller 进行打包。由于不同环境下库的兼容性问题，推荐以下多步打包流程以确保成功：
-
-1.  **生成 `.spec` 文件**:
-    首先，运行以下指令生成一个 `.spec` 配置文件。这一步可能会因为环境问题报错，但没有关系，我们只需要生成 `main.spec` 文件。
-
-    ```sh
-    pyinstaller --noconfirm main.py
-    ```
-
-2.  **修改 `.spec` 文件**:
-    打开新生成的 `main.spec` 文件，找到 `Analysis` 部分的 `excludes` 列表，在其中加入 `'PySide6.QtNetwork'`。修改后应如下所示：
-
-    ```python
-    a = Analysis(
-        ['main.py'],
-        ...
-        excludes=['PySide6.QtNetwork'],
-        ...
-    )
-    ```
-
-3.  **执行打包**:
-    最后，使用修改后的 `.spec` 文件来执行打包。
-
-    ```sh
-    pyinstaller --noconfirm --onefile --windowed --name "antenna-pattern" --icon "icon.ico" --add-data "icon.ico:." --add-data "utils/language.py:utils" main.spec
-    ```
-
-    > **注意**: 直接通过命令行打包可能会因为 SSL 库的冲突而失败。通过修改 `.spec` 文件排除有问题的模块是目前最可靠的打包方式。
-    
-### 运行
-
-打包完成后，在 `dist` 文件夹中找到 `antenna-pattern.exe` 并运行。
-
+pyinstaller --onefile --name "antenna-pattern" --windowed --optimize=2 main.py
 ```
 
-3. 打包完成后，可执行文件将在 `dist` 目录下生成
+3. 带图标的打包命令（如果有icon.ico文件）：
+```bash
+pyinstaller --onefile --name "antenna-pattern" --icon "icon.ico" --windowed --optimize=2 main.py
+```
+
+4. 小体积优化打包命令（谨慎使用）：
+```bash
+pyinstaller --onefile --name "antenna-pattern" --windowed --optimize=2 --exclude-module tkinter --exclude-module unittest main.py
+```
+
+5. 如果遇到模块冲突错误，使用最简单的打包命令：
+```bash
+pyinstaller --onefile --name "antenna-pattern" --windowed main.py
+```
+
+6. 打包完成后，可执行文件将在 `dist` 目录下生成为 `antenna-pattern.exe`
+
+### 打包参数说明
+
+- `--onefile`: 打包成单个exe文件
+- `--name "antenna-pattern"`: 指定生成的exe文件名
+- `--icon "icon.ico"`: 设置程序图标
+- `--windowed`: 不显示控制台窗口（GUI程序）
+- `--optimize=2`: 启用Python字节码优化，减小文件大小
+- `--exclude-module`: 排除不需要的模块，进一步减小文件大小（可能导致兼容性问题）
+
+### 打包故障排除
+
+如果打包过程中遇到错误：
+
+1. **模块冲突错误**：使用最简单的打包命令，不添加 `--exclude-module` 参数
+2. **缺少图标文件**：去掉 `--icon` 参数或确保 `icon.ico` 文件存在
+3. **依赖库问题**：确保所有依赖都已正确安装：`pip install -r requirements.txt`
+4. **路径问题**：确保在项目根目录下执行打包命令
 
 ### Linux平台打包
 
@@ -105,7 +103,7 @@ pip install pyinstaller
 
 2. 执行打包命令：
 ```bash
-pyinstaller --onefile --name "antenna-pattern" --icon "icon.ico" --windowed main.py
+pyinstaller --onefile --name "antenna-pattern" --icon "icon.ico" --optimize=2 --strip main.py
 ```
 
 ## 代码修改指南
