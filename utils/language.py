@@ -95,7 +95,8 @@ class Language:
                 'data_table': '数据表',
                 'display_angle': '显示角度',
                 'source_angle': '源角度 (Theta, Phi)',
-                'gain_value': '增益值'
+                'gain_value': '增益值',
+                'gain_label_angle': '增益刻度角度'
             },
             'en': {
                 'title': 'Antenna Pattern Visualization',
@@ -190,7 +191,8 @@ class Language:
                 'data_table': 'Data Table',
                 'display_angle': 'Display Angle',
                 'source_angle': 'Source (Theta, Phi)',
-                'gain_value': 'Gain Value'
+                'gain_value': 'Gain Value',
+                'gain_label_angle': 'Gain Label Angle'
             }
         }
     
