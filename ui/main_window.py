@@ -319,6 +319,17 @@ class MainWindow(QMainWindow):
         self.gain_steps_spin.valueChanged.connect(self.update_plot)
         gain_steps_layout.addWidget(self.gain_steps_spin)
         gain_control_layout.addLayout(gain_steps_layout)
+
+        # 2D增益刻度位置控制
+        gain_label_angle_layout = QHBoxLayout()
+        gain_label_angle_layout.addWidget(QLabel(self.lang.get('gain_label_angle')))
+        self.gain_label_angle_spin = QDoubleSpinBox()
+        self.gain_label_angle_spin.setRange(-360, 360)
+        self.gain_label_angle_spin.setValue(0)
+        self.gain_label_angle_spin.setSingleStep(15)
+        self.gain_label_angle_spin.valueChanged.connect(self.update_gain_label_angle)
+        gain_label_angle_layout.addWidget(self.gain_label_angle_spin)
+        gain_control_layout.addLayout(gain_label_angle_layout)
         
         view_layout.addWidget(self.gain_control_group)
         
@@ -832,6 +843,7 @@ class MainWindow(QMainWindow):
 
     def update_2d_plot(self):
         """更新2D极坐标图"""
+        all_gains = []
         # 绘制所有曲线
         for i, plot in enumerate(self.current_plots):
             # 获取数据
@@ -884,6 +896,8 @@ class MainWindow(QMainWindow):
             angles_rad = np.append(angles_rad, angles_rad[0])
             full_gains = np.append(full_gains, full_gains[0])
 
+            all_gains.append(full_gains)
+
             # 绘制方向图
             self.ax.plot(angles_rad, full_gains,
                         linestyle=plot['line_style'],
@@ -905,13 +919,52 @@ class MainWindow(QMainWindow):
             legend = self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
             legend.set_zorder(10)  # 确保图例在最顶层
 
-        # 如果不是自动范围，则设置范围和刻度
+        # 设置增益刻度
         if not self.auto_gain_cb.isChecked():
+            # 手动范围模式
             min_gain = self.min_gain_spin.value()
             max_gain = self.max_gain_spin.value()
             steps = self.gain_steps_spin.value()
             self.ax.set_rlim(min_gain, max_gain)
             self.ax.set_rticks(np.linspace(min_gain, max_gain, steps))
+        else:
+            # 自动范围模式
+            if all_gains:
+                combined_gains = np.concatenate(all_gains)
+                global_min_gain = np.nanmin(combined_gains)
+                global_max_gain = np.nanmax(combined_gains)
+
+                if np.isfinite(global_min_gain) and np.isfinite(global_max_gain):
+                    # 将范围近似到5的倍数
+                    nice_min = np.floor(global_min_gain / 5) * 5
+                    nice_max = np.ceil(global_max_gain / 5) * 5
+
+                    if nice_min == nice_max:
+                        nice_max += 5 # 如果最大最小值相等，则增加一点范围
+
+                    # 设置刻度步长
+                    step = 5
+                    num_ticks = (nice_max - nice_min) / step
+                    if num_ticks > 15: # 避免刻度过于密集
+                        step = 10
+                    elif num_ticks > 30:
+                        step = 20
+                    
+                    ticks = np.arange(nice_min, nice_max + 1, step)
+                    
+                    self.ax.set_rlim(nice_min, nice_max)
+                    self.ax.set_rticks(ticks)
+        
+        # 更新增益刻度标签位置
+        self.update_gain_label_angle()
+
+    def update_gain_label_angle(self, angle=None):
+        """更新2D视图增益刻度标签的角度"""
+        if not self.is_3d_view and hasattr(self, 'ax'):
+            if angle is None:
+                angle = self.gain_label_angle_spin.value()
+            self.ax.set_rlabel_position(angle)
+            self.canvas.draw()
 
     def update_3d_plot(self):
         """更新3D方向图，使用带有切面示意图的球坐标样式"""
