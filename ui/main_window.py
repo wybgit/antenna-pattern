@@ -870,26 +870,47 @@ class MainWindow(QMainWindow):
 
             # 创建完整的360度数据
             if plane_type == 'Theta':
-                # 复制角度和增益数据
-                full_angles = np.concatenate([theta_angles, theta_angles + 180])
-                full_gains = gains
-                
-                # 确保角度在-180到180度范围内
-                full_angles = np.where(full_angles > 180, full_angles - 360, full_angles)
-                full_angles = np.where(full_angles < -180, full_angles + 360, full_angles)
-                
-                # 按角度排序
-                sort_idx = np.argsort(full_angles)
-                full_angles = full_angles[sort_idx]
-                full_gains = full_gains[sort_idx]
+                # 检查数据格式
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    # 矩阵格式：数据已经是完整的360度范围
+                    full_angles = theta_angles
+                    full_gains = gains
+                    
+                    # 按角度排序（如果需要）
+                    sort_idx = np.argsort(full_angles)
+                    full_angles = full_angles[sort_idx]
+                    full_gains = full_gains[sort_idx]
+                else:
+                    # 传统格式：get_gain_data_theta_cut已经返回了拼接后的数据
+                    # 需要创建对应的角度数组
+                    full_gains = gains
+                    full_angles = np.concatenate([theta_angles, theta_angles + 180])
+                    
+                    # 确保角度在-180到180度范围内
+                    full_angles = np.where(full_angles > 180, full_angles - 360, full_angles)
+                    full_angles = np.where(full_angles < -180, full_angles + 360, full_angles)
+                    
+                    # 按角度排序
+                    sort_idx = np.argsort(full_angles)
+                    full_angles = full_angles[sort_idx]
+                    full_gains = full_gains[sort_idx]
                 
                 # 转换角度为弧度
                 angles_rad = self.data_reader.get_angles_in_radians(full_angles)
                 label = f"{plot['freq_text']}, {plot['polarization']}, φ={plane_angle}°"
             else:
-                # Phi切面已经是完整的360度数据
-                angles_rad = self.data_reader.get_angles_in_radians(phi_angles)
-                full_gains = gains
+                # Phi切面处理
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    # 矩阵格式：扩展phi数据到360度（镜像对称）
+                    full_angles = np.concatenate([phi_angles, phi_angles + 180])
+                    full_gains = np.concatenate([gains, gains])
+                else:
+                    # 传统格式：已经是完整数据
+                    full_angles = phi_angles
+                    full_gains = gains
+                
+                # 转换角度为弧度
+                angles_rad = self.data_reader.get_angles_in_radians(full_angles)
                 label = f"{plot['freq_text']}, {plot['polarization']}, θ={plane_angle}°"
             
             # 为了闭合图形，将第一个点追加到末尾

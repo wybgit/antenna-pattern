@@ -501,10 +501,13 @@ class AntennaDataReader:
     def get_gain_data_theta_cut(self, frequency_idx, phi_angle, polarization=None):
         """
         获取Theta切面的增益数据.
-        为了显示0-360度的完整theta切面，这个函数:
-        1. 选择请求的phi角度的数据 (例如 phi=15)，作为0-180度的显示部分.
-        2. 选择其相反角度的数据 (phi=-15)，并将其倒序，作为181-360度的显示部分.
-        3. 合并两部分数据.
+        
+        对于矩阵格式数据：
+        - 直接返回指定phi角度下所有theta角度的增益数据
+        - 数据已经是完整的360度范围
+        
+        对于传统格式数据：
+        - 使用原有逻辑进行数据拼接
         
         Args:
             frequency_idx: 频率索引
@@ -522,6 +525,36 @@ class AntennaDataReader:
             phi_angles = data['phi_angles']
             theta_angles = data['theta_angles']
             gains = data['gains']
+            
+            # 对于矩阵格式，直接返回指定phi角度的数据
+            if self.file_format == 'matrix':
+                # 找到最接近的phi角度索引
+                phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - phi_angle))
+                
+                # 获取该phi角度下所有theta角度的增益数据
+                gain_data = gains[:, phi_idx]
+                
+                if self.debug:
+                    selected_phi = phi_angles[phi_idx]
+                    print(f"\n[*] --- Theta Cut (Matrix Format, Phi={phi_angle}°, {frequency} MHz) ---")
+                    print(f"[*] Selected Phi angle: {selected_phi:.1f}° (requested {phi_angle}°)")
+                    print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
+                    print(f"[*] Data points: {len(gain_data)}")
+                    print(f"[*] Gain range: {gain_data.min():.2f} to {gain_data.max():.2f} dB")
+                    
+                    # 检查数据连续性
+                    print("[*] Data continuity check (first 10 points):")
+                    for i in range(min(10, len(gain_data))):
+                        print(f"[*]   Theta[{i}]={theta_angles[i]:.1f}°: {gain_data[i]:.2f} dB")
+                
+                return gain_data
+        
+        # 传统格式或fallback处理
+        if frequency in self.total_data:
+            data = self.total_data[frequency]
+            phi_angles = data['phi_angles']
+            theta_angles = data['theta_angles']
+            gains = data['gains']
         else:
             # Fallback to legacy data structure
             if frequency not in self.gains:
@@ -530,6 +563,7 @@ class AntennaDataReader:
             theta_angles = self.theta_angles_map[frequency]
             gains = self.gains[frequency]
 
+        # 传统格式的处理逻辑
         # 1. 找到最接近的主要phi角度的索引
         primary_phi_idx = min(range(len(phi_angles)), key=lambda i: abs(phi_angles[i] - phi_angle))
         
@@ -553,26 +587,9 @@ class AntennaDataReader:
             primary_theta_val = phi_angles[primary_phi_idx]
             opposite_theta_val = phi_angles[opposite_phi_idx]
             
-            print(f"\n[*] --- Theta Cut ({phi_angle} deg, {frequency} MHz) Processing ---")
-            print(f"[*] Primary Theta angle: {primary_theta_val} (requested {phi_angle}) for 0-180 deg display")
-            print(f"[*] Opposite Theta angle: {opposite_theta_val} (requested {opposite_phi_angle_req}) for 181-360 deg display")
-            
-            print("[*] Detailed data mapping:")
-            print("[*] Display Angle | Source (Phi, Theta) | Gain")
-            print("-" * 50)
-
-            # Log for 0-180 degrees
-            for i, gain in enumerate(gains_0_to_180):
-                display_angle = i
-                source_phi = theta_angles[i]
-                print(f"[*] {display_angle:<13} | ({primary_theta_val:<6}, {theta_angles[i]:<4}) | {gain}")
-
-            # Log for 181-360 degrees
-            for i, gain in enumerate(gains_181_to_360):
-                display_angle = len(gains_0_to_180) + i
-                source_phi = theta_angles[i] # Use normal theta_angles as requested
-                print(f"[*] {display_angle:<13} | ({opposite_theta_val:<6}, {theta_angles[i]:<4}) | {gain}")
-            print("-" * 50)
+            print(f"\n[*] --- Theta Cut (Legacy Format, {phi_angle} deg, {frequency} MHz) ---")
+            print(f"[*] Primary Phi angle: {primary_theta_val} (requested {phi_angle}) for 0-180 deg display")
+            print(f"[*] Opposite Phi angle: {opposite_theta_val} (requested {opposite_phi_angle_req}) for 181-360 deg display")
             
         return combined_gains
         
