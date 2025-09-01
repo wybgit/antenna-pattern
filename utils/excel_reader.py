@@ -18,6 +18,7 @@ class AntennaDataReader:
         self.theta_angles_map = {}
         self.phi_angles_map = {}
         self.total_data = {}  # Store Total data for each frequency
+        self.file_format = None  # 'legacy' or 'matrix'
         self.load_data()
 
     def load_data(self):
@@ -39,7 +40,20 @@ class AntennaDataReader:
                 if self.data is None:
                     raise Exception("无法以支持的编码方式读取CSV文件")
             else:
-                self.data = pd.read_excel(self.file_path, header=None, sheet_name=self.sheet_name)
+                # Read Excel file
+                if self.sheet_name is None:
+                    # Read first sheet by default
+                    excel_data = pd.read_excel(self.file_path, header=None, sheet_name=None)
+                    if isinstance(excel_data, dict):
+                        # Get first sheet
+                        first_sheet_name = list(excel_data.keys())[0]
+                        self.data = excel_data[first_sheet_name]
+                        if self.debug:
+                            print(f"[*] Reading first sheet: {first_sheet_name}")
+                    else:
+                        self.data = excel_data
+                else:
+                    self.data = pd.read_excel(self.file_path, header=None, sheet_name=self.sheet_name)
             
             if self.debug and self.data is not None:
                 print("[*] Data loaded successfully. First 5 rows:")
@@ -54,16 +68,176 @@ class AntennaDataReader:
 
     def process_data(self):
         """
-        Process data from CSV or Excel with new structure understanding:
-        - A column contains polarization identifiers: Total, Theta, Phi
-        - Each polarization block can contain multiple frequencies
-        - Look for "Theta Angle (degree)" rows to identify frequency data blocks
-        - Extract frequency from the same row as "Theta Angle (degree)"
-        - Only process Total blocks
+        Process data from CSV or Excel with automatic format detection:
+        - Legacy format: Traditional structure with "Theta Angle (degree)" headers
+        - Matrix format: New 3D-FREQ2.xlsx style with matrix layout
         """
         if self.debug:
-            print("\n[*] --- Starting Data Processing (Total Only) ---")
+            print("\n[*] --- Starting Data Processing (Auto-detect format) ---")
 
+        # Detect file format
+        self.file_format = self._detect_file_format()
+        
+        if self.debug:
+            print(f"[*] Detected file format: {self.file_format}")
+        
+        if self.file_format == 'matrix':
+            self._process_matrix_format()
+        else:
+            self._process_legacy_format()
+        
+        if not self.frequencies:
+            raise Exception("No valid frequency data found. Please check the file format.")
+        
+        # Set up default data using first frequency
+        first_freq = sorted(self.frequencies)[0]
+        
+        if first_freq in self.total_data:
+            default_data = self.total_data[first_freq]
+            self.theta_angles = default_data['theta_angles']
+            self.phi_angles = default_data['phi_angles']
+            self.theta_angles_map[first_freq] = default_data['theta_angles']
+            self.phi_angles_map[first_freq] = default_data['phi_angles']
+            self.gains[first_freq] = default_data['gains']
+        
+        if self.debug:
+            print("\n[*] --- Data Processing Finished ---")
+            print(f"[*] Found frequencies: {sorted(self.frequencies)}")
+            print(f"[*] Using default frequency: {first_freq} MHz")
+            print(f"[*] Default theta angles: {len(self.theta_angles)} angles")
+            print(f"[*] Default phi angles: {len(self.phi_angles)} angles")
+    
+    def _detect_file_format(self):
+        """
+        Detect file format based on structure:
+        - Matrix format: Has 'Freqency' and 'Phi' in row 1, large matrix structure
+        - Legacy format: Has 'Theta Angle (degree)' headers in specific positions
+        """
+        if len(self.data) < 2:
+            return 'legacy'
+        
+        # Check for matrix format indicators
+        second_row = self.data.iloc[1]
+        has_frequency_phi = False
+        
+        for col_idx in range(min(3, len(second_row))):
+            cell_val = str(second_row.iloc[col_idx]).strip() if pd.notna(second_row.iloc[col_idx]) else ''
+            if 'freqency' in cell_val.lower() or 'phi' in cell_val.lower():
+                has_frequency_phi = True
+                break
+        
+        # Check if it's a large matrix (typical of matrix format)
+        is_large_matrix = len(self.data) > 300 and len(self.data.columns) > 300
+        
+        if has_frequency_phi and is_large_matrix:
+            return 'matrix'
+        else:
+            return 'legacy'
+    
+    def _process_matrix_format(self):
+        """
+        Process matrix format data (3D-FREQ2.xlsx style):
+        - Row 1: Contains theta angles (starting from column 2)
+        - Row 2: Headers including 'Freqency', 'Phi', and theta angle values
+        - Data rows: Frequency, Phi angle, and gain values
+        """
+        if self.debug:
+            print("[*] Processing matrix format data")
+        
+        self.frequencies = []
+        self.theta_angles_map = {}
+        self.phi_angles_map = {}
+        self.gains = {}
+        self.total_data = {}
+        
+        # Extract theta angles from row 2 (starting from column 2)
+        header_row = self.data.iloc[1]
+        theta_angles = []
+        
+        for col_idx in range(2, len(header_row)):
+            cell_val = header_row.iloc[col_idx]
+            if pd.isna(cell_val):
+                break
+            try:
+                # Skip text headers
+                if isinstance(cell_val, str):
+                    continue
+                theta_val = float(cell_val)
+                theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+            except (ValueError, TypeError):
+                break
+        
+        if self.debug:
+            print(f"[*] Extracted {len(theta_angles)} theta angles from header")
+            print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
+        
+        # Process data rows (starting from row 2, index 2)
+        data_by_frequency = {}
+        
+        for row_idx in range(2, len(self.data)):
+            row = self.data.iloc[row_idx]
+            
+            try:
+                # Extract frequency (column 0)
+                frequency = float(row.iloc[0]) / 1e6  # Convert Hz to MHz
+                
+                # Extract phi angle (column 1) 
+                phi_angle = float(row.iloc[1])
+                phi_angle_deg = np.degrees(phi_angle)  # Convert from radians to degrees
+                
+                # Extract gain values (starting from column 2)
+                gain_values = []
+                for col_idx in range(2, min(2 + len(theta_angles), len(row))):
+                    try:
+                        gain_val = float(row.iloc[col_idx])
+                        gain_values.append(gain_val)
+                    except (ValueError, TypeError):
+                        gain_values.append(np.nan)
+                
+                # Store data by frequency
+                if frequency not in data_by_frequency:
+                    data_by_frequency[frequency] = {
+                        'phi_angles': [],
+                        'gains': []
+                    }
+                
+                data_by_frequency[frequency]['phi_angles'].append(phi_angle_deg)
+                data_by_frequency[frequency]['gains'].append(gain_values)
+                
+            except (ValueError, TypeError, IndexError):
+                continue
+        
+        # Convert to final format
+        for frequency, freq_data in data_by_frequency.items():
+            phi_angles = freq_data['phi_angles']
+            gains_matrix = np.array(freq_data['gains'])
+            
+            # Transpose to match expected format: [theta_idx, phi_idx]
+            gains_transposed = gains_matrix.T
+            
+            self.total_data[frequency] = {
+                'theta_angles': theta_angles,
+                'phi_angles': phi_angles,
+                'gains': gains_transposed
+            }
+            
+            self.frequencies.append(frequency)
+            
+            if self.debug:
+                print(f"[*] Processed frequency {frequency} MHz:")
+                print(f"    Phi angles: {len(phi_angles)} ({phi_angles[0]:.1f}° to {phi_angles[-1]:.1f}°)")
+                print(f"    Gain matrix shape: {gains_transposed.shape}")
+    
+    def _process_legacy_format(self):
+        """
+        Process legacy format data (original 3D-FREQ.xlsx style):
+        - Look for "Theta Angle (degree)" headers to identify data blocks
+        - Extract frequency and polarization information
+        - Only process Total polarization blocks
+        """
+        if self.debug:
+            print("[*] Processing legacy format data")
+        
         self.frequencies = []
         self.theta_angles_map = {}
         self.phi_angles_map = {}
@@ -150,27 +324,6 @@ class AntennaDataReader:
             else:
                 if self.debug:
                     print(f"[*] Failed to process frequency {frequency} MHz")
-        
-        if not self.frequencies:
-            raise Exception("No valid Total frequency data blocks found. Please check the file format.")
-        
-        # Set up default data using first frequency
-        first_freq = sorted(self.frequencies)[0]
-        
-        if first_freq in self.total_data:
-            default_data = self.total_data[first_freq]
-            self.theta_angles = default_data['theta_angles']
-            self.phi_angles = default_data['phi_angles']
-            self.theta_angles_map[first_freq] = default_data['theta_angles']
-            self.phi_angles_map[first_freq] = default_data['phi_angles']
-            self.gains[first_freq] = default_data['gains']
-        
-        if self.debug:
-            print("\n[*] --- Data Processing Finished ---")
-            print(f"[*] Found frequencies: {sorted(self.frequencies)}")
-            print(f"[*] Using default frequency: {first_freq} MHz")
-            print(f"[*] Default theta angles: {len(self.theta_angles)} angles")
-            print(f"[*] Default phi angles: {len(self.phi_angles)} angles")
     
     def _find_polarization_block(self, row_idx):
         """Find which polarization block a row belongs to"""
