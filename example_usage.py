@@ -129,11 +129,57 @@ def example_gui_usage():
     print("   - 切换2D/3D视图")
     print("   - 调整坐标轴设置")
     print("   - 控制增益范围")
+    print("   - 【新功能】显示设置:")
+    print("     * 显示/隐藏图表标题")
+    print("     * 设置标题位置（顶部/底部）")
+    print("     * 显示/隐藏图例")
+    print("     * 极坐标网格间隔（15°/30°/45°）")
     print("6. 在'导出设置'标签页中:")
     print("   - 设置图表标题")
     print("   - 调整DPI")
     print("   - 保存图片")
+    print("7. 【新功能】图片操作:")
+    print("   - 点击'导入图片'插入天线图片")
+    print("   - 拖拽图片调整位置")
+    print("   - 拖拽右下角调整大小")
+    print("   - 右键图片菜单:")
+    print("     * 修改大小")
+    print("     * 修改位置")
+    print("     * 旋转图片（新增）")
+    print("     * 删除图片")
+
+def example_new_features():
+    """示例：新功能详细说明"""
+    print("\n=== 新功能详细说明 ===")
+    print("1. 兼容3D-FREQ3.xlsx格式:")
+    print("   - 自动检测并处理去除首行数字的Excel格式")
+    print("   - 支持不同度数间隔的数据（5°/5°, 15°/15°, 5°/15°等）")
+    print("   - 自动识别角度单位（弧度/度）并转换")
+    
+    print("\n2. 图表标题增强:")
+    print("   - 可选择显示/隐藏标题")
+    print("   - 支持标题位置设置（顶部/底部）")
+    print("   - 右键图表可自定义标题设置")
+    
+    print("\n3. 图例控制:")
+    print("   - 可选择显示/隐藏右上角图例")
+    print("   - 图例位置自动优化")
+    
+    print("\n4. 极坐标网格优化:")
+    print("   - 支持15°、30°、45°网格间隔")
+    print("   - 刻度标签自动适应间隔")
+    
+    print("\n5. 图片旋转功能:")
+    print("   - 右键图片选择'旋转图片'")
+    print("   - 输入0-360°旋转角度")
+    print("   - 实时预览旋转效果")
+    
+    print("\n6. 数据处理增强:")
+    print("   - 自动适应不同角度间隔的数据")
+    print("   - 智能检测数据格式和单位")
+    print("   - 更好的错误处理和调试信息")
 
 if __name__ == '__main__':
     example_load_and_plot()
     example_gui_usage()
+    example_new_features()

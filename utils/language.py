@@ -96,7 +96,19 @@ class Language:
                 'display_angle': '显示角度',
                 'source_angle': '源角度 (Theta, Phi)',
                 'gain_value': '增益值',
-                'gain_label_angle': '增益刻度角度'
+                'gain_label_angle': '增益刻度角度',
+                'rotate_image': '旋转图片',
+                'rotation_angle': '旋转角度',
+                'show_title': '显示标题',
+                'show_legend': '显示图例',
+                'title_position': '标题位置',
+                'top': '顶部',
+                'bottom': '底部',
+                'polar_grid_interval': '极坐标网格间隔',
+                'degrees_15': '15度',
+                'degrees_30': '30度',
+                'degrees_45': '45度',
+                'display_settings': '显示设置'
             },
             'en': {
                 'title': 'Antenna Pattern Visualization',
@@ -192,7 +204,19 @@ class Language:
                 'display_angle': 'Display Angle',
                 'source_angle': 'Source (Theta, Phi)',
                 'gain_value': 'Gain Value',
-                'gain_label_angle': 'Gain Label Angle'
+                'gain_label_angle': 'Gain Label Angle',
+                'rotate_image': 'Rotate Image',
+                'rotation_angle': 'Rotation Angle',
+                'show_title': 'Show Title',
+                'show_legend': 'Show Legend',
+                'title_position': 'Title Position',
+                'top': 'Top',
+                'bottom': 'Bottom',
+                'polar_grid_interval': 'Polar Grid Interval',
+                'degrees_15': '15 degrees',
+                'degrees_30': '30 degrees',
+                'degrees_45': '45 degrees',
+                'display_settings': 'Display Settings'
             }
         }
     

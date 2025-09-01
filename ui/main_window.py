@@ -41,9 +41,16 @@ class MainWindow(QMainWindow):
         self.image_resizing = False
         self.image_position = [0.5, 0.5]  # 图片中心位置 [x, y] in figure coordinates
         self.image_size = [0.4, 0.4]      # 图片大小 [width, height] in figure coordinates
+        self.image_rotation = 0           # 图片旋转角度
         self.drag_start = None
         self.resize_corner = None
         self.resize_start_size = None
+        
+        # 图表显示设置
+        self.show_title = True            # 是否显示图表标题
+        self.show_legend = True           # 是否显示图例
+        self.title_position = 'bottom'    # 标题位置: 'top', 'bottom'
+        self.polar_grid_interval = 30     # 极坐标网格间隔: 15, 30, 45
         
         self.load_settings()
         self.setup_ui()
@@ -333,7 +340,42 @@ class MainWindow(QMainWindow):
         
         view_layout.addWidget(self.gain_control_group)
         
+        # 显示设置组
+        display_group = QGroupBox(self.lang.get('display_settings'))
+        display_layout = QVBoxLayout(display_group)
         
+        # 标题显示控制
+        self.show_title_cb = QCheckBox(self.lang.get('show_title'))
+        self.show_title_cb.setChecked(True)
+        self.show_title_cb.stateChanged.connect(self.toggle_title_display)
+        display_layout.addWidget(self.show_title_cb)
+        
+        # 标题位置控制
+        title_pos_layout = QHBoxLayout()
+        title_pos_layout.addWidget(QLabel(self.lang.get('title_position')))
+        self.title_position_combo = QComboBox()
+        self.title_position_combo.addItems([self.lang.get('bottom'), self.lang.get('top')])
+        self.title_position_combo.currentTextChanged.connect(self.change_title_position)
+        title_pos_layout.addWidget(self.title_position_combo)
+        display_layout.addLayout(title_pos_layout)
+        
+        # 图例显示控制
+        self.show_legend_cb = QCheckBox(self.lang.get('show_legend'))
+        self.show_legend_cb.setChecked(True)
+        self.show_legend_cb.stateChanged.connect(self.toggle_legend_display)
+        display_layout.addWidget(self.show_legend_cb)
+        
+        # 极坐标网格间隔控制
+        grid_interval_layout = QHBoxLayout()
+        grid_interval_layout.addWidget(QLabel(self.lang.get('polar_grid_interval')))
+        self.grid_interval_combo = QComboBox()
+        self.grid_interval_combo.addItems([self.lang.get('degrees_15'), self.lang.get('degrees_30'), self.lang.get('degrees_45')])
+        self.grid_interval_combo.setCurrentText(self.lang.get('degrees_30'))
+        self.grid_interval_combo.currentTextChanged.connect(self.change_grid_interval)
+        grid_interval_layout.addWidget(self.grid_interval_combo)
+        display_layout.addLayout(grid_interval_layout)
+        
+        view_layout.addWidget(display_group)
         
         # 添加弹性空间
         view_layout.addStretch()
@@ -631,9 +673,13 @@ class MainWindow(QMainWindow):
         size_action = menu.addAction(self.lang.get('modify_size'))
         size_action.triggered.connect(self.modify_image_size)
         
-        # 添加��改位置的动作
+        # 添加修改位置的动作
         position_action = menu.addAction(self.lang.get('modify_position'))
         position_action.triggered.connect(self.modify_image_position)
+        
+        # 添加旋转图片的动作
+        rotate_action = menu.addAction(self.lang.get('rotate_image'))
+        rotate_action.triggered.connect(self.rotate_image_dialog)
         
         # 添加分隔线
         menu.addSeparator()
@@ -831,6 +877,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
             self.update_image_position()
             
+        # 更新标题
+        self.update_title()
+        
         # 调整布局以确保图例不被遮挡
         self.figure.tight_layout()
         
@@ -931,12 +980,21 @@ class MainWindow(QMainWindow):
         self.ax.set_theta_direction(-1)  # 设置角度顺时针方向
         self.ax.grid(True)
         
-        # 设置刻度标签
-        self.ax.set_xticks(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315]))
-        self.ax.set_xticklabels(['0°', '45°', '90°', '135°', '180°', '225°', '270°', '315°'])
+        # 设置刻度标签（根据网格间隔设置）
+        if self.polar_grid_interval == 15:
+            tick_angles = np.arange(0, 360, 15)
+        elif self.polar_grid_interval == 30:
+            tick_angles = np.arange(0, 360, 30)
+        elif self.polar_grid_interval == 45:
+            tick_angles = np.arange(0, 360, 45)
+        else:
+            tick_angles = np.arange(0, 360, 30)  # 默认30度
+            
+        self.ax.set_xticks(np.deg2rad(tick_angles))
+        self.ax.set_xticklabels([f'{int(angle)}°' for angle in tick_angles])
         
-        # 添加图例并设置位置
-        if self.current_plots:
+        # 添加图例并设置位置（如果启用）
+        if self.current_plots and self.show_legend:
             legend = self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
             legend.set_zorder(10)  # 确保图例在最顶层
 
@@ -1326,7 +1384,20 @@ class MainWindow(QMainWindow):
         
     def update_title(self):
         """更新图表标题"""
-        self.ax.set_title(self.title_edit.text())
+        if self.show_title and self.title_edit.text():
+            if self.title_position == 'bottom':
+                # 在底部显示标题
+                self.ax.set_title('')  # 清除顶部标题
+                # 使用figure的suptitle在底部显示
+                self.figure.suptitle(self.title_edit.text(), y=0.02, fontsize=12)
+            else:
+                # 在顶部显示标题
+                self.figure.suptitle('')  # 清除底部标题
+                self.ax.set_title(self.title_edit.text())
+        else:
+            # 不显示标题
+            self.ax.set_title('')
+            self.figure.suptitle('')
         self.canvas.draw()
         
     def save_plot(self):
@@ -1834,6 +1905,66 @@ class MainWindow(QMainWindow):
 
         dialog = DataViewerDialog(table_data, headers, title=self.lang.get('data_table'), parent=self)
         dialog.exec()
+
+    def rotate_image_dialog(self):
+        """显示图片旋转对话框"""
+        if not hasattr(self, 'image_ax'):
+            return
+            
+        angle, ok = QInputDialog.getDouble(
+            self, 
+            self.lang.get('rotate_image'), 
+            self.lang.get('rotation_angle') + ' (0-360°):', 
+            self.image_rotation, 
+            0, 
+            360, 
+            1
+        )
+        
+        if ok:
+            self.image_rotation = angle
+            self.update_image_rotation()
+            self.canvas.draw()
+
+    def update_image_rotation(self):
+        """更新图片旋转"""
+        if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+            # 清除当前图片
+            self.image_ax.clear()
+            
+            # 重新显示旋转后的图片
+            from scipy.ndimage import rotate
+            rotated_image = rotate(self.current_image_data, self.image_rotation, reshape=False)
+            self.image_ax.imshow(rotated_image, alpha=0.7)
+            self.image_ax.axis('off')
+
+    def toggle_title_display(self, state):
+        """切换标题显示"""
+        self.show_title = state == Qt.Checked
+        self.update_plot()
+
+    def toggle_legend_display(self, state):
+        """切换图例显示"""
+        self.show_legend = state == Qt.Checked
+        self.update_plot()
+
+    def change_title_position(self, position_text):
+        """改变标题位置"""
+        if position_text == self.lang.get('bottom'):
+            self.title_position = 'bottom'
+        else:
+            self.title_position = 'top'
+        self.update_plot()
+
+    def change_grid_interval(self, interval_text):
+        """改变极坐标网格间隔"""
+        if interval_text == self.lang.get('degrees_15'):
+            self.polar_grid_interval = 15
+        elif interval_text == self.lang.get('degrees_30'):
+            self.polar_grid_interval = 30
+        elif interval_text == self.lang.get('degrees_45'):
+            self.polar_grid_interval = 45
+        self.update_plot()
 
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 class DataViewerDialog(QDialog):

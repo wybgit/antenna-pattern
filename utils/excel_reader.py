@@ -110,20 +110,24 @@ class AntennaDataReader:
     def _detect_file_format(self):
         """
         Detect file format based on structure:
-        - Matrix format: Has 'Freqency' and 'Phi' in row 1, large matrix structure
+        - Matrix format: Has 'Freqency' and 'Phi' in row 1 or 2, large matrix structure
         - Legacy format: Has 'Theta Angle (degree)' headers in specific positions
         """
         if len(self.data) < 2:
             return 'legacy'
         
-        # Check for matrix format indicators
-        second_row = self.data.iloc[1]
+        # Check for matrix format indicators in both row 1 and row 2 (for 3D-FREQ3.xlsx compatibility)
         has_frequency_phi = False
         
-        for col_idx in range(min(3, len(second_row))):
-            cell_val = str(second_row.iloc[col_idx]).strip() if pd.notna(second_row.iloc[col_idx]) else ''
-            if 'freqency' in cell_val.lower() or 'phi' in cell_val.lower():
-                has_frequency_phi = True
+        # Check first few rows for matrix format indicators
+        for row_idx in range(min(3, len(self.data))):
+            row = self.data.iloc[row_idx]
+            for col_idx in range(min(3, len(row))):
+                cell_val = str(row.iloc[col_idx]).strip() if pd.notna(row.iloc[col_idx]) else ''
+                if 'freqency' in cell_val.lower() or 'phi' in cell_val.lower():
+                    has_frequency_phi = True
+                    break
+            if has_frequency_phi:
                 break
         
         # Check if it's a large matrix (typical of matrix format)
@@ -136,9 +140,9 @@ class AntennaDataReader:
     
     def _process_matrix_format(self):
         """
-        Process matrix format data (3D-FREQ2.xlsx style):
-        - Row 1: Contains theta angles (starting from column 2)
-        - Row 2: Headers including 'Freqency', 'Phi', and theta angle values
+        Process matrix format data (3D-FREQ2.xlsx and 3D-FREQ3.xlsx style):
+        - For 3D-FREQ2.xlsx: Row 1 contains theta angles, Row 2 has headers
+        - For 3D-FREQ3.xlsx: Row 2 has headers (no first row numbers), data starts from row 3
         - Data rows: Frequency, Phi angle, and gain values
         """
         if self.debug:
@@ -150,8 +154,26 @@ class AntennaDataReader:
         self.gains = {}
         self.total_data = {}
         
-        # Extract theta angles from row 2 (starting from column 2)
-        header_row = self.data.iloc[1]
+        # Find the header row (contains 'Freqency' and 'Phi')
+        header_row_idx = -1
+        for row_idx in range(min(3, len(self.data))):
+            row = self.data.iloc[row_idx]
+            for col_idx in range(min(3, len(row))):
+                cell_val = str(row.iloc[col_idx]).strip() if pd.notna(row.iloc[col_idx]) else ''
+                if 'freqency' in cell_val.lower() or 'phi' in cell_val.lower():
+                    header_row_idx = row_idx
+                    break
+            if header_row_idx != -1:
+                break
+        
+        if header_row_idx == -1:
+            raise Exception("Cannot find header row with 'Freqency' and 'Phi'")
+        
+        if self.debug:
+            print(f"[*] Found header row at index: {header_row_idx}")
+        
+        # Extract theta angles from header row (starting from column 2)
+        header_row = self.data.iloc[header_row_idx]
         theta_angles = []
         
         for col_idx in range(2, len(header_row)):
@@ -163,27 +185,62 @@ class AntennaDataReader:
                 if isinstance(cell_val, str):
                     continue
                 theta_val = float(cell_val)
-                theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+                # Check if value is in radians (typically < 7 for 0-360 degrees)
+                if theta_val <= 7:
+                    theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+                else:
+                    theta_angles.append(theta_val)  # Already in degrees
             except (ValueError, TypeError):
                 break
         
+        # If no theta angles found in header row, try to extract from previous row (3D-FREQ2.xlsx style)
+        if not theta_angles and header_row_idx > 0:
+            prev_row = self.data.iloc[header_row_idx - 1]
+            for col_idx in range(2, len(prev_row)):
+                cell_val = prev_row.iloc[col_idx]
+                if pd.isna(cell_val):
+                    break
+                try:
+                    if isinstance(cell_val, str):
+                        continue
+                    theta_val = float(cell_val)
+                    if theta_val <= 7:
+                        theta_angles.append(np.degrees(theta_val))
+                    else:
+                        theta_angles.append(theta_val)
+                except (ValueError, TypeError):
+                    break
+        
         if self.debug:
             print(f"[*] Extracted {len(theta_angles)} theta angles from header")
-            print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
+            if theta_angles:
+                print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
         
-        # Process data rows (starting from row 2, index 2)
+        # Process data rows (starting from header_row_idx + 1)
         data_by_frequency = {}
+        data_start_row = header_row_idx + 1
         
-        for row_idx in range(2, len(self.data)):
+        for row_idx in range(data_start_row, len(self.data)):
             row = self.data.iloc[row_idx]
             
             try:
                 # Extract frequency (column 0)
-                frequency = float(row.iloc[0]) / 1e6  # Convert Hz to MHz
+                frequency = float(row.iloc[0])
+                # Handle different frequency units (Hz, MHz, GHz)
+                if frequency > 1e9:  # Likely in Hz
+                    frequency = frequency / 1e6  # Convert to MHz
+                elif frequency > 1000:  # Likely already in MHz
+                    pass
+                else:  # Likely in GHz
+                    frequency = frequency * 1000  # Convert to MHz
                 
                 # Extract phi angle (column 1) 
                 phi_angle = float(row.iloc[1])
-                phi_angle_deg = np.degrees(phi_angle)  # Convert from radians to degrees
+                # Check if phi angle is in radians
+                if phi_angle <= 7:  # Likely in radians
+                    phi_angle_deg = np.degrees(phi_angle)
+                else:  # Already in degrees
+                    phi_angle_deg = phi_angle
                 
                 # Extract gain values (starting from column 2)
                 gain_values = []
