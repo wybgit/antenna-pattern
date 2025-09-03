@@ -10,7 +10,6 @@ from PySide6.QtGui import QAction, QIcon, QPixmap
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 from utils.excel_reader import AntennaDataReader
 from utils.language import Language
@@ -28,13 +27,7 @@ class MainWindow(QMainWindow):
         self.active_plot_index = -1  # Currently selected plot index
         self.plot_saved = True  # 标记图像是否已保存
         
-        # 3D视图相关
-        self.is_3d_view = False
-        self.elevation = 30
-        self.azimuth = 45
-        self.auto_rotate = False
-        self.auto_rotate_timer = QTimer()
-        self.auto_rotate_timer.timeout.connect(self.rotate_3d_view)
+        # 移除3D视图相关功能
         
         # 图片相关
         self.image_dragging = False
@@ -47,10 +40,13 @@ class MainWindow(QMainWindow):
         self.resize_start_size = None
         
         # 图表显示设置
-        self.show_title = True            # 是否显示图表标题
-        self.show_legend = True           # 是否显示图例
+        self.show_title = 'show'          # 标题显示: 'show', 'hide'
+        self.show_legend = 'show'         # 图例显示: 'show', 'hide'
         self.title_position = 'bottom'    # 标题位置: 'top', 'bottom'
         self.polar_grid_interval = 30     # 极坐标网格间隔: 15, 30, 45
+        self.title_size = 12              # 标题字体大小
+        self.legend_size = 10             # 图例字体大小
+        self.plot_title_text = ''         # 图表标题文本
         
         self.load_settings()
         self.setup_ui()
@@ -73,14 +69,11 @@ class MainWindow(QMainWindow):
 
     def reset_view(self):
         """重置视图"""
-        if self.is_3d_view:
-            self.reset_3d_view()
-        else:
-            # 重置2D视图
-            self.ax.set_rmax(None)  # 重置半径范围
-            self.ax.set_theta_zero_location('S')  # 重置0度位置
-            self.ax.set_theta_direction(-1)  # 重置角度方向
-            self.canvas.draw()
+        # 重置2D视图
+        self.ax.set_rmax(None)  # 重置半径范围
+        self.ax.set_theta_zero_location('S')  # 重置0度位置
+        self.ax.set_theta_direction(-1)  # 重置角度方向
+        self.canvas.draw()
 
     def setup_ui(self):
         """设置UI界面"""
@@ -102,48 +95,13 @@ class MainWindow(QMainWindow):
         # 创建右侧图表区域
         self.create_right_panel()
         
-        # 创建菜单栏和工具栏
-        self.create_menu_bar()
-        self.create_tool_bar()
+        # 不创建菜单栏和工具栏
         
         # 创建状态栏
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
         
-    def create_menu_bar(self):
-        """创建菜单栏"""
-        menubar = self.menuBar()
-        
-        # 语言菜单
-        lang_menu = menubar.addMenu(self.lang.get('language'))
-        
-        chinese_action = QAction(self.lang.get('chinese'), self)
-        chinese_action.triggered.connect(lambda: self.change_language('zh'))
-        lang_menu.addAction(chinese_action)
-        
-        english_action = QAction(self.lang.get('english'), self)
-        english_action.triggered.connect(lambda: self.change_language('en'))
-        lang_menu.addAction(english_action)
-        
-        # 主题菜单
-        theme_menu = menubar.addMenu(self.lang.get('theme'))
-        
-        light_action = QAction(self.lang.get('light'), self)
-        light_action.triggered.connect(lambda: self.change_theme('light'))
-        theme_menu.addAction(light_action)
-        
-        dark_action = QAction(self.lang.get('dark'), self)
-        dark_action.triggered.connect(lambda: self.change_theme('dark'))
-        theme_menu.addAction(dark_action)
-        
-    def create_tool_bar(self):
-        """创建简化的工具栏"""
-        toolbar = QToolBar()
-        toolbar.setObjectName("mainToolBar")
-        self.addToolBar(toolbar)
-        
-        # 工具栏现在只保留基本的视图控制功能
-        # 数据导入和保存功能已移至页签中
+    # 移除菜单栏和工具栏创建函数
 
     def create_left_panel(self):
         """创建左侧控制面板"""
@@ -184,15 +142,7 @@ class MainWindow(QMainWindow):
         
         view_layout.addWidget(import_group)
         
-        # 视图类型选择组
-        view_type_group = QGroupBox(self.lang.get('view_type'))
-        view_type_layout = QVBoxLayout(view_type_group)
-        
-        self.view_combo = QComboBox()
-        self.view_combo.addItems([self.lang.get('2d_view'), self.lang.get('3d_view')])
-        self.view_combo.currentIndexChanged.connect(self.switch_view)
-        view_type_layout.addWidget(self.view_combo)
-        view_layout.addWidget(view_type_group)
+        # 移除视图类型选择组（只保留2D视图）
         
         # 坐标轴设置组
         axis_group = QGroupBox(self.lang.get('axis_settings'))
@@ -220,75 +170,6 @@ class MainWindow(QMainWindow):
         axis_layout.addLayout(axis_angle_layout)
         
         view_layout.addWidget(axis_group)
-        
-        # 3D视图控制组
-        self.d3_controls = QGroupBox(self.lang.get('3d_view_controls'))
-        d3_layout = QVBoxLayout(self.d3_controls)
-        
-        # 方位角控制
-        azimuth_layout = QHBoxLayout()
-        azimuth_layout.addWidget(QLabel(self.lang.get('azimuth')))
-        self.azimuth_slider = QSlider(Qt.Horizontal)
-        self.azimuth_slider.setRange(0, 360)
-        self.azimuth_slider.setValue(45)
-        self.azimuth_slider.valueChanged.connect(self.update_3d_view)
-        azimuth_layout.addWidget(self.azimuth_slider)
-        d3_layout.addLayout(azimuth_layout)
-        
-        # 仰角控制
-        elevation_layout = QHBoxLayout()
-        elevation_layout.addWidget(QLabel(self.lang.get('elevation')))
-        self.elevation_slider = QSlider(Qt.Horizontal)
-        self.elevation_slider.setRange(0, 90)
-        self.elevation_slider.setValue(30)
-        self.elevation_slider.valueChanged.connect(self.update_3d_view)
-        elevation_layout.addWidget(self.elevation_slider)
-        d3_layout.addLayout(elevation_layout)
-        
-        # 自动旋转控制
-        auto_rotate_layout = QHBoxLayout()
-        self.auto_rotate_cb = QCheckBox(self.lang.get('auto_rotate'))
-        self.auto_rotate_cb.stateChanged.connect(self.toggle_auto_rotate)
-        auto_rotate_layout.addWidget(self.auto_rotate_cb)
-        
-        # 重置视图按钮
-        reset_view_btn = QPushButton(self.lang.get('reset_view'))
-        reset_view_btn.clicked.connect(self.reset_3d_view)
-        auto_rotate_layout.addWidget(reset_view_btn)
-        d3_layout.addLayout(auto_rotate_layout)
-
-        view_layout.addWidget(self.d3_controls)
-        self.d3_controls.setVisible(False)
-        
-        # 3D视图数据范围控制组
-        self.d3_data_range_group = QGroupBox(self.lang.get('data_range_3d'))
-        d3_range_layout = QVBoxLayout(self.d3_data_range_group)
-
-        self.d3_auto_gain_cb = QCheckBox(self.lang.get('auto_range'))
-        self.d3_auto_gain_cb.setChecked(True)
-        self.d3_auto_gain_cb.stateChanged.connect(self.toggle_3d_gain_range)
-        d3_range_layout.addWidget(self.d3_auto_gain_cb)
-
-        d3_gain_range_layout = QHBoxLayout()
-        self.d3_min_gain_spin = QDoubleSpinBox()
-        self.d3_min_gain_spin.setRange(-100, 100)
-        self.d3_min_gain_spin.setValue(-30)
-        self.d3_min_gain_spin.setEnabled(False)
-        self.d3_min_gain_spin.valueChanged.connect(self.update_plot)
-        d3_gain_range_layout.addWidget(QLabel("Min:"))
-        d3_gain_range_layout.addWidget(self.d3_min_gain_spin)
-
-        self.d3_max_gain_spin = QDoubleSpinBox()
-        self.d3_max_gain_spin.setRange(-100, 100)
-        self.d3_max_gain_spin.setValue(10)
-        self.d3_max_gain_spin.setEnabled(False)
-        self.d3_max_gain_spin.valueChanged.connect(self.update_plot)
-        d3_gain_range_layout.addWidget(QLabel("Max:"))
-        d3_gain_range_layout.addWidget(self.d3_max_gain_spin)
-        d3_range_layout.addLayout(d3_gain_range_layout)
-        
-        view_layout.addWidget(self.d3_data_range_group)
-        self.d3_data_range_group.setVisible(False)
         
         # 2D增益范围控制组
         self.gain_control_group = QGroupBox(self.lang.get('gain_range_2d'))
@@ -344,11 +225,24 @@ class MainWindow(QMainWindow):
         display_group = QGroupBox(self.lang.get('display_settings'))
         display_layout = QVBoxLayout(display_group)
         
+        # 图表标题设置
+        title_layout = QHBoxLayout()
+        title_layout.addWidget(QLabel(self.lang.get('plot_title')))
+        self.title_edit = QLineEdit()
+        self.title_edit.setMinimumHeight(30)
+        self.title_edit.setPlaceholderText(self.lang.get('plot_title'))
+        self.title_edit.textChanged.connect(self.update_title_text)
+        title_layout.addWidget(self.title_edit)
+        display_layout.addLayout(title_layout)
+        
         # 标题显示控制
-        self.show_title_cb = QCheckBox(self.lang.get('show_title'))
-        self.show_title_cb.setChecked(True)
-        self.show_title_cb.stateChanged.connect(self.toggle_title_display)
-        display_layout.addWidget(self.show_title_cb)
+        title_show_layout = QHBoxLayout()
+        title_show_layout.addWidget(QLabel(self.lang.get('show_title')))
+        self.show_title_combo = QComboBox()
+        self.show_title_combo.addItems([self.lang.get('show'), self.lang.get('hide')])
+        self.show_title_combo.currentTextChanged.connect(self.toggle_title_display)
+        title_show_layout.addWidget(self.show_title_combo)
+        display_layout.addLayout(title_show_layout)
         
         # 标题位置控制
         title_pos_layout = QHBoxLayout()
@@ -359,11 +253,34 @@ class MainWindow(QMainWindow):
         title_pos_layout.addWidget(self.title_position_combo)
         display_layout.addLayout(title_pos_layout)
         
+        # 标题大小控制
+        title_size_layout = QHBoxLayout()
+        title_size_layout.addWidget(QLabel(self.lang.get('title_size')))
+        self.title_size_spin = QSpinBox()
+        self.title_size_spin.setRange(8, 24)
+        self.title_size_spin.setValue(12)
+        self.title_size_spin.valueChanged.connect(self.change_title_size)
+        title_size_layout.addWidget(self.title_size_spin)
+        display_layout.addLayout(title_size_layout)
+        
         # 图例显示控制
-        self.show_legend_cb = QCheckBox(self.lang.get('show_legend'))
-        self.show_legend_cb.setChecked(True)
-        self.show_legend_cb.stateChanged.connect(self.toggle_legend_display)
-        display_layout.addWidget(self.show_legend_cb)
+        legend_show_layout = QHBoxLayout()
+        legend_show_layout.addWidget(QLabel(self.lang.get('show_legend')))
+        self.show_legend_combo = QComboBox()
+        self.show_legend_combo.addItems([self.lang.get('show'), self.lang.get('hide')])
+        self.show_legend_combo.currentTextChanged.connect(self.toggle_legend_display)
+        legend_show_layout.addWidget(self.show_legend_combo)
+        display_layout.addLayout(legend_show_layout)
+        
+        # 图例大小控制
+        legend_size_layout = QHBoxLayout()
+        legend_size_layout.addWidget(QLabel(self.lang.get('legend_size')))
+        self.legend_size_spin = QSpinBox()
+        self.legend_size_spin.setRange(6, 18)
+        self.legend_size_spin.setValue(10)
+        self.legend_size_spin.valueChanged.connect(self.change_legend_size)
+        legend_size_layout.addWidget(self.legend_size_spin)
+        display_layout.addLayout(legend_size_layout)
         
         # 极坐标网格间隔控制
         grid_interval_layout = QHBoxLayout()
@@ -504,22 +421,6 @@ class MainWindow(QMainWindow):
         export_tab = QWidget()
         export_layout = QVBoxLayout(export_tab)
         
-        # 图表设置组
-        chart_group = QGroupBox(self.lang.get('chart_settings'))
-        chart_layout = QVBoxLayout(chart_group)
-        
-        # 图表标题
-        title_layout = QHBoxLayout()
-        title_layout.addWidget(QLabel(self.lang.get('plot_title')))
-        self.title_edit = QLineEdit()
-        self.title_edit.setMinimumHeight(30)
-        self.title_edit.setPlaceholderText(self.lang.get('plot_title'))
-        self.title_edit.textChanged.connect(self.update_title)
-        title_layout.addWidget(self.title_edit)
-        chart_layout.addLayout(title_layout)
-        
-        export_layout.addWidget(chart_group)
-        
         # 导出设置组
         export_settings_group = QGroupBox(self.lang.get('export_settings'))
         export_settings_layout = QVBoxLayout(export_settings_group)
@@ -575,7 +476,7 @@ class MainWindow(QMainWindow):
         
         self.layout.addWidget(right_panel, stretch=1)
         
-        # 初始化为2D视图
+        # 初始化为2D极坐标视图
         self.ax = self.figure.add_subplot(111, projection='polar')
         self.ax.grid(True)
         self.canvas.draw()
@@ -679,7 +580,7 @@ class MainWindow(QMainWindow):
         
         # 添加旋转图片的动作
         rotate_action = menu.addAction(self.lang.get('rotate_image'))
-        rotate_action.triggered.connect(self.rotate_image_dialog)
+        rotate_action.triggered.connect(self.rotate_image_90)
         
         # 添加分隔线
         menu.addSeparator()
@@ -783,8 +684,7 @@ class MainWindow(QMainWindow):
         self.is_3d_view = index == 1
         self.d3_controls.setVisible(self.is_3d_view)
         self.d3_data_range_group.setVisible(self.is_3d_view)
-        self.gain_control_group.setVisible(not self.is_3d_view)
-        self.show_data_btn.setVisible(not self.is_3d_view)
+        # 2D增益范围控制组始终可见
         
         # 清除当前图形并创建新的子图
         self.figure.clear()
@@ -806,37 +706,7 @@ class MainWindow(QMainWindow):
         
         self.update_plot()
         
-    def update_3d_view(self):
-        """更新3D视图角度"""
-        if self.is_3d_view:
-            self.elevation = self.elevation_slider.value()
-            self.azimuth = self.azimuth_slider.value()
-            self.ax.view_init(self.elevation, self.azimuth)
-            self.canvas.draw()
-            
-    def rotate_3d_view(self):
-        """自动旋转3D视图"""
-        if self.is_3d_view and self.auto_rotate:
-            self.azimuth = (self.azimuth + 2) % 360
-            self.azimuth_slider.setValue(self.azimuth)
-            
-    def toggle_auto_rotate(self, state):
-        """切换自动旋转状态"""
-        self.auto_rotate = state == Qt.Checked
-        if self.auto_rotate:
-            self.auto_rotate_timer.start(50)  # 50ms interval
-        else:
-            self.auto_rotate_timer.stop()
-            
-    def reset_3d_view(self):
-        """重置3D视图角度"""
-        if self.is_3d_view:
-            self.elevation = 30
-            self.azimuth = 45
-            self.elevation_slider.setValue(self.elevation)
-            self.azimuth_slider.setValue(self.azimuth)
-            self.ax.view_init(self.elevation, self.azimuth)
-            self.canvas.draw()
+    # 移除所有3D视图相关方法
 
     def update_plot(self):
         """更新图表"""
@@ -846,32 +716,17 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'ax'):
             # 如果ax不存在，创建一个新的
             self.figure.clear()
-            if self.is_3d_view:
-                self.ax = self.figure.add_subplot(111, projection='3d')
-            else:
-                self.ax = self.figure.add_subplot(111, projection='polar')
-                self.ax.grid(True)
+            self.ax = self.figure.add_subplot(111, projection='polar')
+            self.ax.grid(True)
         else:
-            # If in 3D view, safely remove the colorbar before clearing the main axes
-            if self.is_3d_view and hasattr(self, 'colorbar'):
-                try:
-                    self.colorbar.remove()
-                except (AttributeError, KeyError):
-                    # This can happen if the colorbar's axes are already detached
-                    pass
-                finally:
-                    if hasattr(self, 'colorbar'):
-                        delattr(self, 'colorbar')
             self.ax.clear()
         
         # 确保主图在最底层
         self.ax.set_zorder(1)
         self.ax.patch.set_alpha(0)  # 设置背景透明
         
-        if self.is_3d_view:
-            self.update_3d_plot()
-        else:
-            self.update_2d_plot()
+        # 只使用2D视图
+        self.update_2d_plot()
             
         # 如果有图片，重新设置其位置和大小
         if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
@@ -994,8 +849,8 @@ class MainWindow(QMainWindow):
         self.ax.set_xticklabels([f'{int(angle)}°' for angle in tick_angles])
         
         # 添加图例并设置位置（如果启用）
-        if self.current_plots and self.show_legend:
-            legend = self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+        if self.current_plots and self.show_legend == 'show':
+            legend = self.ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=self.legend_size)
             legend.set_zorder(10)  # 确保图例在最顶层
 
         # 设置增益刻度
@@ -1039,221 +894,13 @@ class MainWindow(QMainWindow):
 
     def update_gain_label_angle(self, angle=None):
         """更新2D视图增益刻度标签的角度"""
-        if not self.is_3d_view and hasattr(self, 'ax'):
+        if hasattr(self, 'ax'):
             if angle is None:
                 angle = self.gain_label_angle_spin.value()
             self.ax.set_rlabel_position(angle)
             self.canvas.draw()
 
-    def update_3d_plot(self):
-        """更新3D方向图，使用带有切面示意图的球坐标样式"""
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-        if not self.current_plots:
-            return
-            
-        plot = self.current_plots[0]
-        freq_idx = plot['freq_idx']
-        
-        # 获取数据
-        phi_angles = np.array(self.data_reader.get_phi_angles())
-        theta_angles = np.array(self.data_reader.get_theta_angles())
-        gains = self.data_reader.gains.get(self.data_reader.frequencies[freq_idx])
-        
-        if gains is None:
-            self.ax.text2D(0.5, 0.5, "No data available", transform=self.ax.transAxes, ha='center')
-            self.canvas.draw()
-            return
-
-        if plot['normalized']:
-            gains = self.data_reader.normalize_data(gains)
-        
-        # 创建角度网格
-        phi_rad = np.deg2rad(phi_angles)
-        theta_rad = np.deg2rad(theta_angles)
-        PHI, THETA = np.meshgrid(phi_rad, theta_rad)
-        
-        # 转换坐标
-        R = gains
-        X = R * np.sin(THETA) * np.cos(PHI)
-        Y = R * np.sin(THETA) * np.sin(PHI)
-        Z = R * np.cos(THETA)
-        
-        # --- 自定义坐标��样式 ---
-        self.ax.set_axis_off() # 关闭所有默认坐标轴元素
-        self.ax.grid(False)
-
-        # 获取数据
-        phi_angles_orig = np.array(self.data_reader.get_phi_angles())
-        theta_angles_orig = np.array(self.data_reader.get_theta_angles())
-        gains_orig = self.data_reader.gains.get(self.data_reader.frequencies[freq_idx])
-        
-        if self.debug_mode:
-            print(f"DEBUG 3D: Original Theta angles range: [{theta_angles_orig.min()}, {theta_angles_orig.max()}]")
-            print(f"DEBUG 3D: Original Phi angles range: [{phi_angles_orig.min()}, {phi_angles_orig.max()}]")
-
-        if gains_orig is None:
-            self.ax.text2D(0.5, 0.5, "No data available", transform=self.ax.transAxes, ha='center')
-            self.canvas.draw()
-            return
-
-        if plot['normalized']:
-            gains_orig = self.data_reader.normalize_data(gains_orig)
-        
-        # --- Handle Theta Angle Extension for Full Sphere (0-180 degrees) ---
-        theta_angles = theta_angles_orig
-        gains_processed_theta = gains_orig
-
-        if theta_angles_orig.max() < 179: # Use 179 to account for floating point inaccuracies
-            if self.debug_mode:
-                print(f"DEBUG 3D: Extending theta angles. Original max: {theta_angles_orig.max()}")
-            
-            theta_step = theta_angles_orig[1] - theta_angles_orig[0] if len(theta_angles_orig) > 1 else 10
-            theta_angles_extended = np.arange(0, 180 + theta_step, theta_step)
-            
-            extended_gains_theta = np.zeros((len(theta_angles_extended), gains_orig.shape[1]))
-            
-            for i, theta_val in enumerate(theta_angles_extended):
-                if theta_val <= theta_angles_orig.max():
-                    orig_theta_idx = np.argmin(np.abs(theta_angles_orig - theta_val))
-                    extended_gains_theta[i, :] = gains_orig[orig_theta_idx, :]
-                else:
-                    mirror_theta_val = 180 - theta_val
-                    if mirror_theta_val >= theta_angles_orig.min():
-                        orig_theta_idx = np.argmin(np.abs(theta_angles_orig - mirror_theta_val))
-                        extended_gains_theta[i, :] = gains_orig[orig_theta_idx, :]
-                    else:
-                        extended_gains_theta[i, :] = gains_orig[0, :] # Fallback to theta=0 gain
-            theta_angles = theta_angles_extended
-            gains_processed_theta = extended_gains_theta
-
-        # --- Handle Phi Angle Extension for Full 360 degrees ---
-        phi_angles = phi_angles_orig
-        gains_final = gains_processed_theta
-
-        if phi_angles_orig.max() < 359: # Check if phi angles cover full 360 degrees
-            if self.debug_mode:
-                print(f"DEBUG 3D: Extending phi angles. Original max: {phi_angles_orig.max()}")
-
-            phi_step = phi_angles_orig[1] - phi_angles_orig[0] if len(phi_angles_orig) > 1 else 10
-            phi_angles_extended = np.arange(0, 360 + phi_step, phi_step)
-
-            extended_gains_phi = np.zeros((gains_processed_theta.shape[0], len(phi_angles_extended)))
-
-            for j, phi_val in enumerate(phi_angles_extended):
-                if phi_val <= phi_angles_orig.max():
-                    orig_phi_idx = np.argmin(np.abs(phi_angles_orig - phi_val))
-                    extended_gains_phi[:, j] = gains_processed_theta[:, orig_phi_idx]
-                else:
-                    mirror_phi_val = 360 - phi_val
-                    if mirror_phi_val >= phi_angles_orig.min():
-                        orig_phi_idx = np.argmin(np.abs(phi_angles_orig - mirror_phi_val))
-                        extended_gains_phi[:, j] = gains_processed_theta[:, orig_phi_idx]
-                    else:
-                        extended_gains_phi[:, j] = gains_processed_theta[:, 0] # Fallback to phi=0 gain
-
-            phi_angles = phi_angles_extended
-            gains_final = extended_gains_phi
-
-        # Convert angles to radians
-        phi_rad = np.deg2rad(phi_angles)
-        theta_rad = np.deg2rad(theta_angles)
-        PHI, THETA = np.meshgrid(phi_rad, theta_rad)
-        
-        # Convert to Cartesian coordinates
-        R = gains_final
-        X = R * np.sin(THETA) * np.cos(PHI)
-        Y = R * np.sin(THETA) * np.sin(PHI)
-        Z = R * np.cos(THETA)
-        
-        # --- Custom Axis Style ---
-        self.ax.set_axis_off() # Turn off all default axis elements
-        self.ax.grid(False)
-
-        # Plot 3D surface
-        surf = self.ax.plot_surface(X, Y, Z, cmap='viridis', linewidth=0.5, alpha=0.9, rstride=1, cstride=1, zorder=5)
-        
-        # Update color range based on settings
-        if not self.d3_auto_gain_cb.isChecked():
-            surf.set_clim(self.d3_min_gain_spin.value(), self.d3_max_gain_spin.value())
-
-        # --- Draw Custom Reference Axes and Illustrative Planes ---
-        max_r = np.nanmax(np.abs(R)) * 1.2 # Find max radius for axis and plane size
-        if np.isnan(max_r) or max_r == 0: max_r = 10 # Fallback if R is all NaN or zero
-
-        # Draw illustrative planes (existing code)
-        circle_pts = np.linspace(0, 2 * np.pi, 100)
-        
-        # Theta=90 (XY plane)
-        xy_plane_x = max_r * np.cos(circle_pts)
-        xy_plane_y = max_r * np.sin(circle_pts)
-        xy_plane_z = np.zeros_like(xy_plane_x)
-        self.ax.add_collection3d(Poly3DCollection([list(zip(xy_plane_x, xy_plane_y, xy_plane_z))], color='lightcyan', alpha=0.1, zorder=1))
-        self.ax.text(0, max_r, 0, "θ=90° Plane", color='darkcyan', ha='center')
-
-        # Phi=0 (YZ plane)
-        yz_plane_y = max_r * np.cos(circle_pts)
-        yz_plane_z = max_r * np.sin(circle_pts)
-        yz_plane_x = np.zeros_like(yz_plane_y)
-        self.ax.add_collection3d(Poly3DCollection([list(zip(yz_plane_x, yz_plane_y, yz_plane_z))], color='thistle', alpha=0.1, zorder=1))
-        self.ax.text(0, 0, max_r, "φ=0°/180° Plane", color='purple', ha='center')
-
-        # Phi=90 (XZ plane)
-        xz_plane_x = max_r * np.cos(circle_pts)
-        xz_plane_z = max_r * np.sin(circle_pts)
-        xz_plane_y = np.zeros_like(xz_plane_x)
-        self.ax.add_collection3d(Poly3DCollection([list(zip(xz_plane_x, xz_plane_y, xz_plane_z))], color='lightgoldenrodyellow', alpha=0.1, zorder=1))
-        self.ax.text(max_r, 0, 0, "φ=90°/270° Plane", color='olive', ha='center')
-
-        # Draw coordinate axes with arrows
-        axis_len = max_r * 1.1
-        arrow_len = max_r * 0.05 # Length of the arrowhead
-        arrow_width = max_r * 0.02 # Width of the arrowhead base
-
-        # Z-axis (θ=0°)
-        self.ax.plot([0, 0], [0, 0], [0, axis_len], color='gray', linestyle='-', zorder=2)
-        self.ax.text(0, 0, axis_len * 1.05, "Z (θ=0°)", color='black', ha='center')
-        # Z-axis arrowhead (simple cone approximation)
-        self.ax.plot([0, 0], [0, 0], [axis_len - arrow_len, axis_len], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([-arrow_width, arrow_width], [0, 0], [axis_len - arrow_len, axis_len - arrow_len], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([0, 0], [-arrow_width, arrow_width], [axis_len - arrow_len, axis_len - arrow_len], color='gray', linestyle='-', linewidth=2, zorder=2)
-
-
-        # X-axis (φ=0°)
-        self.ax.plot([0, axis_len], [0, 0], [0, 0], color='gray', linestyle='-', zorder=2)
-        self.ax.text(axis_len * 1.05, 0, 0, "X (φ=0°)", color='black', ha='center')
-        # X-axis arrowhead
-        self.ax.plot([axis_len - arrow_len, axis_len], [0, 0], [0, 0], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([axis_len - arrow_len, axis_len - arrow_len], [-arrow_width, arrow_width], [0, 0], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([axis_len - arrow_len, axis_len - arrow_len], [0, 0], [-arrow_width, arrow_width], color='gray', linestyle='-', linewidth=2, zorder=2)
-
-
-        # Y-axis (φ=90°)
-        self.ax.plot([0, 0], [0, axis_len], [0, 0], color='gray', linestyle='-', zorder=2)
-        self.ax.text(0, axis_len * 1.05, 0, "Y (φ=90°)", color='black', ha='center')
-        # Y-axis arrowhead
-        self.ax.plot([0, 0], [axis_len - arrow_len, axis_len], [0, 0], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([-arrow_width, arrow_width], [axis_len - arrow_len, axis_len - arrow_len], [0, 0], color='gray', linestyle='-', linewidth=2, zorder=2)
-        self.ax.plot([0, 0], [axis_len - arrow_len, axis_len - arrow_len], [-arrow_width, arrow_width], color='gray', linestyle='-', linewidth=2, zorder=2)
-
-
-        # Add color bar
-        if hasattr(self, 'colorbar') and self.colorbar.ax is not None:
-            self.colorbar.update_normal(surf)
-        else:
-            self.colorbar = self.figure.colorbar(surf, ax=self.ax, shrink=0.6, aspect=10)
-            self.colorbar.set_label('Gain (dB)')
-
-        # Set view angle and title
-        self.ax.view_init(elev=self.elevation, azim=self.azimuth)
-        self.ax.set_title(f"3D Pattern @ {plot['freq_text']}")
-        
-        # Set axis limits
-        self.ax.set_box_aspect([1, 1, 1])
-        lim = (-max_r, max_r)
-        self.ax.set_xlim(lim)
-        self.ax.set_ylim(lim)
-        self.ax.set_zlim(lim)
+    # 移除update_3d_plot方法
         
     def load_data(self):
         """加载数据文件"""
@@ -1938,14 +1585,14 @@ class MainWindow(QMainWindow):
             self.image_ax.imshow(rotated_image, alpha=0.7)
             self.image_ax.axis('off')
 
-    def toggle_title_display(self, state):
+    def toggle_title_display(self, text):
         """切换标题显示"""
-        self.show_title = state == Qt.Checked
+        self.show_title = 'show' if text == self.lang.get('show') else 'hide'
         self.update_plot()
 
-    def toggle_legend_display(self, state):
+    def toggle_legend_display(self, text):
         """切换图例显示"""
-        self.show_legend = state == Qt.Checked
+        self.show_legend = 'show' if text == self.lang.get('show') else 'hide'
         self.update_plot()
 
     def change_title_position(self, position_text):
@@ -1954,6 +1601,16 @@ class MainWindow(QMainWindow):
             self.title_position = 'bottom'
         else:
             self.title_position = 'top'
+        self.update_plot()
+
+    def change_title_size(self, size):
+        """改变标题大小"""
+        self.title_size = size
+        self.update_plot()
+
+    def change_legend_size(self, size):
+        """改变图例大小"""
+        self.legend_size = size
         self.update_plot()
 
     def change_grid_interval(self, interval_text):
@@ -1965,6 +1622,183 @@ class MainWindow(QMainWindow):
         elif interval_text == self.lang.get('degrees_45'):
             self.polar_grid_interval = 45
         self.update_plot()
+
+    def rotate_image_90(self):
+        """逆时针旋转图片90度"""
+        if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+            self.image_rotation = (self.image_rotation + 90) % 360
+            self.update_image_rotation()
+            self.canvas.draw()
+
+    def update_title_text(self, text):
+        """更新标题文本"""
+        self.plot_title_text = text
+        self.update_plot()
+
+    def update_title(self):
+        """更新图表标题"""
+        if hasattr(self, 'ax') and self.plot_title_text and self.show_title == 'show':
+            # 设置标题，支持中文显示
+            plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS']
+            plt.rcParams['axes.unicode_minus'] = False
+            
+            if self.title_position == 'bottom':
+                # 标题显示在0度下方
+                self.ax.set_title(self.plot_title_text, fontsize=self.title_size, 
+                                 pad=20, y=-0.1, bbox=None)
+            else:
+                # 标题显示在顶部
+                self.ax.set_title(self.plot_title_text, fontsize=self.title_size, 
+                                 pad=20, bbox=None)
+        elif hasattr(self, 'ax'):
+            self.ax.set_title('')
+
+    def toggle_2d_gain_range(self, state):
+        """切换2D增益范围自动/手动模式"""
+        auto_mode = state == Qt.Checked
+        self.min_gain_spin.setEnabled(not auto_mode)
+        self.max_gain_spin.setEnabled(not auto_mode)
+        self.gain_steps_spin.setEnabled(not auto_mode)
+        self.update_plot()
+
+    def update_image_rotation(self):
+        """更新图片旋转"""
+        if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+            # 清除当前图片
+            self.image_ax.clear()
+            
+            # 重新显示旋转后的图片
+            import numpy as np
+            from scipy.ndimage import rotate
+            rotated_image = rotate(self.current_image_data, self.image_rotation, reshape=False)
+            self.image_ax.imshow(rotated_image, alpha=0.7)
+            self.image_ax.axis('off')
+            self.update_image_position()
+
+    def update_image_position(self):
+        """更新图片位置和大小"""
+        if hasattr(self, 'image_ax'):
+            # 计算图片在Figure坐标系中的位置
+            left = self.image_position[0] - self.image_size[0] / 2
+            bottom = self.image_position[1] - self.image_size[1] / 2
+            width = self.image_size[0]
+            height = self.image_size[1]
+            
+            # 设置图片子图的位置
+            self.image_ax.set_position([left, bottom, width, height])
+
+    def modify_image_size(self):
+        """修改图片大小对话框"""
+        if not hasattr(self, 'image_ax'):
+            return
+            
+        width, ok1 = QInputDialog.getDouble(
+            self, 
+            self.lang.get('modify_size'), 
+            self.lang.get('width') + ' (0.1-1.0):', 
+            self.image_size[0], 
+            0.1, 
+            1.0, 
+            2
+        )
+        
+        if ok1:
+            height, ok2 = QInputDialog.getDouble(
+                self, 
+                self.lang.get('modify_size'), 
+                self.lang.get('height') + ' (0.1-1.0):', 
+                self.image_size[1], 
+                0.1, 
+                1.0, 
+                2
+            )
+            
+            if ok2:
+                self.image_size = [width, height]
+                self.update_image_position()
+                self.canvas.draw()
+
+    def modify_image_position(self):
+        """修改图片位置对话框"""
+        if not hasattr(self, 'image_ax'):
+            return
+            
+        x, ok1 = QInputDialog.getDouble(
+            self, 
+            self.lang.get('modify_position'), 
+            'X (0.0-1.0):', 
+            self.image_position[0], 
+            0.0, 
+            1.0, 
+            2
+        )
+        
+        if ok1:
+            y, ok2 = QInputDialog.getDouble(
+                self, 
+                self.lang.get('modify_position'), 
+                'Y (0.0-1.0):', 
+                self.image_position[1], 
+                0.0, 
+                1.0, 
+                2
+            )
+            
+            if ok2:
+                self.image_position = [x, y]
+                self.update_image_position()
+                self.canvas.draw()
+
+    def remove_image(self):
+        """删除图片"""
+        if hasattr(self, 'image_ax'):
+            self.image_ax.remove()
+            delattr(self, 'image_ax')
+        if hasattr(self, 'current_image_data'):
+            delattr(self, 'current_image_data')
+        self.canvas.draw()
+
+    def insert_image(self):
+        """插入图片"""
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            self.lang.get('select_image'),
+            "",
+            self.lang.get('image_filter_all')
+        )
+        
+        if file_name:
+            try:
+                from PIL import Image
+                import numpy as np
+                
+                # 加载图片
+                image = Image.open(file_name)
+                self.current_image_data = np.array(image)
+                
+                # 创建图片子图
+                self.image_ax = self.figure.add_axes([0, 0, 1, 1])
+                self.image_ax.patch.set_alpha(0)  # 设置背景透明
+                self.image_ax.imshow(self.current_image_data, alpha=0.7)
+                self.image_ax.axis('off')
+                self.update_image_position()
+                self.image_ax.set_zorder(10)  # 确保图片在最上层
+                
+                self.canvas.draw()
+                
+            except Exception as e:
+                QMessageBox.critical(self, self.lang.get('error'),
+                                   f"{self.lang.get('image_error')}: {str(e)}")
+
+    def load_settings(self):
+        """加载设置"""
+        # 从QSettings加载设置
+        pass
+
+    def save_settings(self):
+        """保存设置"""
+        # 保存设置到QSettings
+        pass
 
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 class DataViewerDialog(QDialog):

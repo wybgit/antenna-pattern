@@ -108,7 +108,11 @@ class Language:
                 'degrees_15': '15度',
                 'degrees_30': '30度',
                 'degrees_45': '45度',
-                'display_settings': '显示设置'
+                'display_settings': '显示设置',
+                'show': '显示',
+                'hide': '隐藏',
+                'title_size': '标题大小',
+                'legend_size': '图例大小'
             },
             'en': {
                 'title': 'Antenna Pattern Visualization',
@@ -216,7 +220,11 @@ class Language:
                 'degrees_15': '15 degrees',
                 'degrees_30': '30 degrees',
                 'degrees_45': '45 degrees',
-                'display_settings': 'Display Settings'
+                'display_settings': 'Display Settings',
+                'show': 'Show',
+                'hide': 'Hide',
+                'title_size': 'Title Size',
+                'legend_size': 'Legend Size'
             }
         }
     
