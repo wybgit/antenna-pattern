@@ -212,9 +212,9 @@ class AntennaDataReader:
                     break
         
         if self.debug:
-            print(f"[*] Extracted {len(theta_angles)} theta angles from header")
+            print(f"[*] Extracted {len(theta_angles)} angles from header (will become phi angles after swap)")
             if theta_angles:
-                print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
+                print(f"[*] Header angles range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
         
         # Process data rows (starting from header_row_idx + 1)
         data_by_frequency = {}
@@ -272,18 +272,21 @@ class AntennaDataReader:
             # Transpose to match expected format: [theta_idx, phi_idx]
             gains_transposed = gains_matrix.T
             
+            # 对于Matrix格式，需要互换phi和theta数据
+            # 原来的theta_angles作为phi_angles，原来的phi_angles作为theta_angles
             self.total_data[frequency] = {
-                'theta_angles': theta_angles,
-                'phi_angles': phi_angles,
-                'gains': gains_transposed
+                'theta_angles': phi_angles,  # 互换：原来的phi_angles现在作为theta_angles
+                'phi_angles': theta_angles,  # 互换：原来的theta_angles现在作为phi_angles
+                'gains': gains_transposed.T  # 相应地转置增益矩阵以匹配新的角度排列
             }
             
             self.frequencies.append(frequency)
             
             if self.debug:
                 print(f"[*] Processed frequency {frequency} MHz:")
-                print(f"    Phi angles: {len(phi_angles)} ({phi_angles[0]:.1f}° to {phi_angles[-1]:.1f}°)")
-                print(f"    Gain matrix shape: {gains_transposed.shape}")
+                print(f"    Original Phi angles (now Theta): {len(phi_angles)} ({phi_angles[0]:.1f}° to {phi_angles[-1]:.1f}°)")
+                print(f"    Original Theta angles (now Phi): {len(theta_angles)} ({theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°)")
+                print(f"    Gain matrix shape after transpose: {gains_transposed.T.shape}")
     
     def _process_legacy_format(self):
         """
