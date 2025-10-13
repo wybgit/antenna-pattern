@@ -13,6 +13,8 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 import numpy as np
 from utils.excel_reader import AntennaDataReader
 from utils.language import Language
+import sys
+import platform
 
 class MainWindow(QMainWindow):
     def __init__(self, debug=False):
@@ -732,12 +734,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
             self.update_image_position()
             
-        # 更新标题
-        self.update_title()
-        
         # 调整布局以确保图例不被遮挡
         self.figure.tight_layout()
-        
+
+        # 更新标题（在tight_layout之后，避免被覆盖）
+        self.update_title()
+
         # 确保图例在最顶层
         if hasattr(self.ax, 'legend_') and self.ax.legend_ is not None:
             self.ax.legend_.set_zorder(10)
@@ -801,7 +803,7 @@ class MainWindow(QMainWindow):
                 
                 # 转换角度为弧度
                 angles_rad = self.data_reader.get_angles_in_radians(full_angles)
-                label = f"{plot['freq_text']}, {plot['polarization']}, φ={plane_angle}°"
+                label = f"{plot['freq_text']}, {plot['polarization']}, φ={int(plane_angle)}°"
             else:
                 # Phi切面处理
                 if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
@@ -815,7 +817,7 @@ class MainWindow(QMainWindow):
                 
                 # 转换角度为弧度
                 angles_rad = self.data_reader.get_angles_in_radians(full_angles)
-                label = f"{plot['freq_text']}, {plot['polarization']}, θ={plane_angle}°"
+                label = f"{plot['freq_text']}, {plot['polarization']}, θ={int(plane_angle)}°"
             
             # 为了闭合图形，将第一个点追加到末尾
             angles_rad = np.append(angles_rad, angles_rad[0])
@@ -993,17 +995,17 @@ class MainWindow(QMainWindow):
             plane_type = self.plane_type_combo.currentText()
             
             if plane_type == 'Theta':
-                # 当切面类型为Theta时，切面角度的档位和Phi的取值一致
+                # 当切面类型为Theta时，切面角度的档位和Phi的取值一致（强制为整数）
                 phi_angles = self.data_reader.get_phi_angles()
-                # 只取大于等于0的值
                 valid_angles = [angle for angle in phi_angles if angle >= 0]
-                angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
+                unique_int_angles = sorted(set(int(round(angle)) for angle in valid_angles))
+                angle_options = [str(v) for v in unique_int_angles]
             else:  # plane_type == 'Phi'
-                # 当切面类型为Phi时，切面角度和Theta取值一致
+                # 当切面类型为Phi时，切面角度和Theta取值一致（强制为整数）
                 theta_angles = self.data_reader.get_theta_angles()
-                # 只取大于等于0的值
                 valid_angles = [angle for angle in theta_angles if angle >= 0]
-                angle_options = [str(int(angle)) if angle == int(angle) else str(angle) for angle in sorted(valid_angles)]
+                unique_int_angles = sorted(set(int(round(angle)) for angle in valid_angles))
+                angle_options = [str(v) for v in unique_int_angles]
             
             # 添加选项到下拉框
             if angle_options:
@@ -1582,7 +1584,9 @@ class MainWindow(QMainWindow):
             # 重新显示旋转后的图片
             from scipy.ndimage import rotate
             rotated_image = rotate(self.current_image_data, self.image_rotation, reshape=False)
-            self.image_ax.imshow(rotated_image, alpha=0.7)
+            is_windows = platform.system().lower().startswith('win') or sys.platform.startswith('win')
+            alpha_value = 1.0 if is_windows else 0.7
+            self.image_ax.imshow(rotated_image, alpha=alpha_value)
             self.image_ax.axis('off')
 
     def toggle_title_display(self, text):
@@ -1636,20 +1640,34 @@ class MainWindow(QMainWindow):
         self.update_plot()
 
     def update_title(self):
-        """更新图表标题"""
+        """更新图表标题与布局，保证底部标题在中间且不遮挡方向图"""
         if hasattr(self, 'ax') and self.plot_title_text and self.show_title == 'show':
             # 设置标题，支持中文显示
             plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS']
             plt.rcParams['axes.unicode_minus'] = False
-            
+
             if self.title_position == 'bottom':
-                # 标题显示在0度下方
-                self.ax.set_title(self.plot_title_text, fontsize=self.title_size, 
-                                 pad=20, y=-0.1, bbox=None)
+                # 计算所需底部边距（按字体点数转换为英寸，再转换为figure比例）
+                fig_height_in = max(1e-6, self.figure.get_figheight())
+                title_height_in = (self.title_size / 72.0)
+                extra_in = 0.12  # 额外空白
+                bottom_margin = min(0.35, max(0.12, (title_height_in + extra_in) / fig_height_in))
+
+                # 调整子图边距，避免遮挡
+                self.figure.subplots_adjust(bottom=bottom_margin)
+
+                # 在轴的下方居中显示标题
+                self.ax.set_title(
+                    self.plot_title_text,
+                    fontsize=self.title_size,
+                    pad=10,
+                    y=-0.12,
+                    bbox=None,
+                )
             else:
-                # 标题显示在顶部
-                self.ax.set_title(self.plot_title_text, fontsize=self.title_size, 
-                                 pad=20, bbox=None)
+                # 顶部标题，恢复较小底部边距
+                self.figure.subplots_adjust(bottom=0.1)
+                self.ax.set_title(self.plot_title_text, fontsize=self.title_size, pad=10, bbox=None)
         elif hasattr(self, 'ax'):
             self.ax.set_title('')
 
@@ -1671,7 +1689,9 @@ class MainWindow(QMainWindow):
             import numpy as np
             from scipy.ndimage import rotate
             rotated_image = rotate(self.current_image_data, self.image_rotation, reshape=False)
-            self.image_ax.imshow(rotated_image, alpha=0.7)
+            is_windows = platform.system().lower().startswith('win') or sys.platform.startswith('win')
+            alpha_value = 1.0 if is_windows else 0.7
+            self.image_ax.imshow(rotated_image, alpha=alpha_value)
             self.image_ax.axis('off')
             self.update_image_position()
 
@@ -1759,33 +1779,44 @@ class MainWindow(QMainWindow):
         self.canvas.draw()
 
     def insert_image(self):
-        """插入图片"""
+        """插入图片（Windows下不透明，默认居中，支持鼠标拖拽与缩放）"""
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             self.lang.get('select_image'),
             "",
             self.lang.get('image_filter_all')
         )
-        
+
         if file_name:
             try:
                 from PIL import Image
                 import numpy as np
-                
+
                 # 加载图片
                 image = Image.open(file_name)
                 self.current_image_data = np.array(image)
-                
-                # 创建图片子图
-                self.image_ax = self.figure.add_axes([0, 0, 1, 1])
-                self.image_ax.patch.set_alpha(0)  # 设置背景透明
-                self.image_ax.imshow(self.current_image_data, alpha=0.7)
+
+                # 确保默认居中
+                self.image_position = [0.5, 0.5]
+
+                # 创建或复用图片子图
+                if hasattr(self, 'image_ax'):
+                    self.image_ax.clear()
+                else:
+                    self.image_ax = self.figure.add_axes([0, 0, 1, 1])
+
+                self.image_ax.patch.set_alpha(0)
+
+                # Windows 下使用不透明，其他平台保持原有0.7透明度
+                is_windows = platform.system().lower().startswith('win') or sys.platform.startswith('win')
+                alpha_value = 1.0 if is_windows else 0.7
+                self.image_ax.imshow(self.current_image_data, alpha=alpha_value)
                 self.image_ax.axis('off')
                 self.update_image_position()
-                self.image_ax.set_zorder(10)  # 确保图片在最上层
-                
+                self.image_ax.set_zorder(10)
+
                 self.canvas.draw()
-                
+
             except Exception as e:
                 QMessageBox.critical(self, self.lang.get('error'),
                                    f"{self.lang.get('image_error')}: {str(e)}")
