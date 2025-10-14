@@ -28,6 +28,10 @@ class MainWindow(QMainWindow):
         self.current_plots = []  # Store multiple plots
         self.active_plot_index = -1  # Currently selected plot index
         self.plot_saved = True  # 标记图像是否已保存
+        # 自动样式循环（颜色与线型）
+        self.color_cycle = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
+        self.linestyle_cycle = ['-', '--', ':', '-.']
+        self.next_style_index = 0
         
         # 移除3D视图相关功能
         
@@ -146,32 +150,7 @@ class MainWindow(QMainWindow):
         
         # 移除视图类型选择组（只保留2D视图）
         
-        # 坐标轴设置组
-        axis_group = QGroupBox(self.lang.get('axis_settings'))
-        axis_layout = QVBoxLayout(axis_group)
-        
-        # 坐标轴方向
-        axis_direction_layout = QHBoxLayout()
-        axis_direction_layout.addWidget(QLabel(self.lang.get('axis_direction')))
-        self.axis_direction_combo = QComboBox()
-        self.axis_direction_combo.addItems(['N', 'S', 'E', 'W'])
-        self.axis_direction_combo.setCurrentText('S')
-        self.axis_direction_combo.currentTextChanged.connect(self.update_axis_direction)
-        axis_direction_layout.addWidget(self.axis_direction_combo)
-        axis_layout.addLayout(axis_direction_layout)
-        
-        # 坐标轴角度
-        axis_angle_layout = QHBoxLayout()
-        axis_angle_layout.addWidget(QLabel(self.lang.get('axis_angle')))
-        self.axis_angle_spin = QDoubleSpinBox()
-        self.axis_angle_spin.setRange(-360, 360)
-        self.axis_angle_spin.setValue(0)
-        self.axis_angle_spin.setSingleStep(15)
-        self.axis_angle_spin.valueChanged.connect(self.update_axis_angle)
-        axis_angle_layout.addWidget(self.axis_angle_spin)
-        axis_layout.addLayout(axis_angle_layout)
-        
-        view_layout.addWidget(axis_group)
+        # 去掉坐标轴设置组（方向与角度）
         
         # 2D增益范围控制组
         self.gain_control_group = QGroupBox(self.lang.get('gain_range_2d'))
@@ -385,8 +364,12 @@ class MainWindow(QMainWindow):
         line_style_layout = QHBoxLayout()
         line_style_layout.addWidget(QLabel(self.lang.get('line_style')))
         self.line_style_combo = QComboBox()
-        self.line_style_combo.addItems(['-', '--', ':', '-.'])
-        self.line_style_combo.currentTextChanged.connect(self.on_parameter_changed)
+        # 添加线型选项，显示更清晰的说明
+        self.line_style_combo.addItem('─ 实线', '-')
+        self.line_style_combo.addItem('-- 虚线', '--')
+        self.line_style_combo.addItem('··· 点线', ':')
+        self.line_style_combo.addItem('-· 点划线', '-.')
+        self.line_style_combo.currentIndexChanged.connect(self.on_parameter_changed)
         line_style_layout.addWidget(self.line_style_combo)
         style_layout.addLayout(line_style_layout)
         
@@ -401,9 +384,19 @@ class MainWindow(QMainWindow):
         style_layout.addLayout(line_width_layout)
         
         # 颜色选择
+        color_layout = QHBoxLayout()
         color_btn = QPushButton(self.lang.get('line_color'))
         color_btn.clicked.connect(self.choose_color)
-        style_layout.addWidget(color_btn)
+        color_layout.addWidget(color_btn)
+        
+        # 颜色预览标签
+        self.color_preview = QLabel('     ')
+        self.color_preview.setStyleSheet('background-color: blue; border: 1px solid black;')
+        self.color_preview.setMinimumWidth(40)
+        self.color_preview.setMinimumHeight(30)
+        color_layout.addWidget(self.color_preview)
+        style_layout.addLayout(color_layout)
+        
         self.current_color = 'blue'
         
         curve_layout.addWidget(style_group)
@@ -752,20 +745,32 @@ class MainWindow(QMainWindow):
         all_gains = []
         # 绘制所有曲线
         for i, plot in enumerate(self.current_plots):
-            # 获取数据
-            plane_type = self.plane_type_combo.currentText()
-            plane_angle = float(self.plane_angle_combo.currentText())
+            # 从曲线自己的参数中获取数据，而不是从UI控件
+            plane_type = plot['plane_type']
+            plane_angle = plot['plane_angle']
             
             if plane_type == 'Theta':
-                # Theta切面：固定phi角度，theta从-180到180度
-                phi_angle = plane_angle
-                theta_angles = np.array(self.data_reader.get_theta_angles())
-                gains = self.data_reader.get_gain_data_theta_cut(plot['freq_idx'], phi_angle, plot['polarization'])
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    # 矩阵格式：交换显示，Theta选择显示Phi切面（固定theta，phi变化）
+                    theta_angle = plane_angle
+                    phi_angles = np.array(self.data_reader.get_phi_angles())
+                    gains = self.data_reader.get_gain_data_phi_cut(plot['freq_idx'], theta_angle, plot['polarization'])
+                else:
+                    # 传统格式：固定phi角度，theta从-180到180度
+                    phi_angle = plane_angle
+                    theta_angles = np.array(self.data_reader.get_theta_angles())
+                    gains = self.data_reader.get_gain_data_theta_cut(plot['freq_idx'], phi_angle, plot['polarization'])
             else:
-                # Phi切面：固定theta角度，phi从0到360度
-                theta_angle = plane_angle
-                phi_angles = np.array(self.data_reader.get_phi_angles())
-                gains = self.data_reader.get_gain_data_phi_cut(plot['freq_idx'], theta_angle, plot['polarization'])
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    # 矩阵格式：交换显示，Phi选择显示Theta切面（固定phi，theta变化）
+                    phi_angle = plane_angle
+                    theta_angles = np.array(self.data_reader.get_theta_angles())
+                    gains = self.data_reader.get_gain_data_theta_cut(plot['freq_idx'], phi_angle, plot['polarization'])
+                else:
+                    # 传统格式：固定theta角度，phi从0到360度
+                    theta_angle = plane_angle
+                    phi_angles = np.array(self.data_reader.get_phi_angles())
+                    gains = self.data_reader.get_gain_data_phi_cut(plot['freq_idx'], theta_angle, plot['polarization'])
             
             if gains is None:
                 continue
@@ -776,48 +781,42 @@ class MainWindow(QMainWindow):
 
             # 创建完整的360度数据
             if plane_type == 'Theta':
-                # 检查数据格式
                 if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
-                    # 矩阵格式：数据已经是完整的360度范围
-                    full_angles = theta_angles
-                    full_gains = gains
-                    
-                    # 按角度排序（如果需要）
-                    sort_idx = np.argsort(full_angles)
-                    full_angles = full_angles[sort_idx]
-                    full_gains = full_gains[sort_idx]
+                    # 矩阵格式：交换显示，Theta显示Phi切面（固定theta，phi变化）
+                    full_angles = np.concatenate([phi_angles, phi_angles + 180])
+                    full_gains = np.concatenate([gains, gains])
+                    angles_rad = self.data_reader.get_angles_in_radians(full_angles)
+                    label = f"{plot['freq_text']}, {plot['polarization']}, θ={int(plane_angle)}°"
                 else:
-                    # 传统格式：get_gain_data_theta_cut已经返回了拼接后的数据
-                    # 需要创建对应的角度数组
+                    # 传统格式：Theta切面（固定phi，theta从-180到180）
                     full_gains = gains
                     full_angles = np.concatenate([theta_angles, theta_angles + 180])
-                    
                     # 确保角度在-180到180度范围内
                     full_angles = np.where(full_angles > 180, full_angles - 360, full_angles)
                     full_angles = np.where(full_angles < -180, full_angles + 360, full_angles)
-                    
                     # 按角度排序
                     sort_idx = np.argsort(full_angles)
                     full_angles = full_angles[sort_idx]
                     full_gains = full_gains[sort_idx]
-                
-                # 转换角度为弧度
-                angles_rad = self.data_reader.get_angles_in_radians(full_angles)
-                label = f"{plot['freq_text']}, {plot['polarization']}, φ={int(plane_angle)}°"
+                    angles_rad = self.data_reader.get_angles_in_radians(full_angles)
+                    label = f"{plot['freq_text']}, {plot['polarization']}, φ={int(plane_angle)}°"
             else:
-                # Phi切面处理
                 if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
-                    # 矩阵格式：扩展phi数据到360度（镜像对称）
-                    full_angles = np.concatenate([phi_angles, phi_angles + 180])
-                    full_gains = np.concatenate([gains, gains])
+                    # 矩阵格式：交换显示，Phi显示Theta切面（固定phi，theta变化）
+                    full_angles = theta_angles
+                    full_gains = gains
+                    # 按角度排序（如果需要）
+                    sort_idx = np.argsort(full_angles)
+                    full_angles = full_angles[sort_idx]
+                    full_gains = full_gains[sort_idx]
+                    angles_rad = self.data_reader.get_angles_in_radians(full_angles)
+                    label = f"{plot['freq_text']}, {plot['polarization']}, φ={int(plane_angle)}°"
                 else:
-                    # 传统格式：已经是完整数据
+                    # 传统格式：Phi切面（固定theta，phi从0到360）
                     full_angles = phi_angles
                     full_gains = gains
-                
-                # 转换角度为弧度
-                angles_rad = self.data_reader.get_angles_in_radians(full_angles)
-                label = f"{plot['freq_text']}, {plot['polarization']}, θ={int(plane_angle)}°"
+                    angles_rad = self.data_reader.get_angles_in_radians(full_angles)
+                    label = f"{plot['freq_text']}, {plot['polarization']}, θ={int(plane_angle)}°"
             
             # 为了闭合图形，将第一个点追加到末尾
             angles_rad = np.append(angles_rad, angles_rad[0])
@@ -833,7 +832,8 @@ class MainWindow(QMainWindow):
                         label=label,
                         zorder=5)  # 确保曲线在图片上方
                         
-        self.ax.set_theta_zero_location(self.axis_direction_combo.currentText())
+        # 固定极坐标零度位置为南（S），顺时针方向
+        self.ax.set_theta_zero_location('S')
         self.ax.set_theta_direction(-1)  # 设置角度顺时针方向
         self.ax.grid(True)
         
@@ -995,15 +995,20 @@ class MainWindow(QMainWindow):
             plane_type = self.plane_type_combo.currentText()
             
             if plane_type == 'Theta':
-                # 当切面类型为Theta时，切面角度的档位和Phi的取值一致（强制为整数）
-                phi_angles = self.data_reader.get_phi_angles()
-                valid_angles = [angle for angle in phi_angles if angle >= 0]
+                # 矩阵格式下交换Theta/Phi的切面角度来源
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    source_angles = self.data_reader.get_theta_angles()
+                else:
+                    source_angles = self.data_reader.get_phi_angles()
+                valid_angles = [angle for angle in source_angles if angle >= 0]
                 unique_int_angles = sorted(set(int(round(angle)) for angle in valid_angles))
                 angle_options = [str(v) for v in unique_int_angles]
             else:  # plane_type == 'Phi'
-                # 当切面类型为Phi时，切面角度和Theta取值一致（强制为整数）
-                theta_angles = self.data_reader.get_theta_angles()
-                valid_angles = [angle for angle in theta_angles if angle >= 0]
+                if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
+                    source_angles = self.data_reader.get_phi_angles()
+                else:
+                    source_angles = self.data_reader.get_theta_angles()
+                valid_angles = [angle for angle in source_angles if angle >= 0]
                 unique_int_angles = sorted(set(int(round(angle)) for angle in valid_angles))
                 angle_options = [str(v) for v in unique_int_angles]
             
@@ -1089,16 +1094,24 @@ class MainWindow(QMainWindow):
                     except:
                         plane_angle = 0.0
             
+            # 更新当前曲线的设置
             plot.update({
                 'freq_idx': self.freq_combo.currentIndex(),
                 'freq_text': self.freq_combo.currentText(),
                 'polarization': self.polarization_combo.currentText(),
                 'plane_type': self.plane_type_combo.currentText(),
                 'plane_angle': plane_angle,
-                'line_style': self.line_style_combo.currentText(),
+                'line_style': self.line_style_combo.currentData(),
                 'line_width': self.line_width_spin.value(),
                 'normalized': self.normalize_cb.isChecked()
             })
+            
+            # 更新曲线列表中的显示名称
+            plane_symbol = 'θ' if plot['plane_type'] == 'Theta' else 'φ'
+            curve_desc = f"曲线{self.active_plot_index + 1}: {plot['freq_text']}, {plot['polarization']}, {plane_symbol}={int(plane_angle)}°"
+            self.plot_list.item(self.active_plot_index).setText(curve_desc)
+            
+            # 更新绘图
             self.update_plot()
 
     def choose_color(self):
@@ -1106,6 +1119,9 @@ class MainWindow(QMainWindow):
         color = QColorDialog.getColor()
         if color.isValid():
             self.current_color = color.name()
+            # 更新颜色预览
+            self.color_preview.setStyleSheet(f'background-color: {self.current_color}; border: 1px solid black;')
+            
             if self.active_plot_index >= 0:
                 self.current_plots[self.active_plot_index]['color'] = self.current_color
                 self.update_plot()
@@ -1143,28 +1159,77 @@ class MainWindow(QMainWindow):
         if not self.data_reader:
             return
             
+        # 自动分配样式：颜色和线型同时循环变化
+        # 这样可以让每条新曲线都有不同的颜色和线型，区分度最高
+        # 例如：曲线1(蓝色+实线), 曲线2(橙色+虚线), 曲线3(绿色+点线), 曲线4(红色+点划线), 曲线5(紫色+实线)...
+        color_idx = self.next_style_index % len(self.color_cycle)
+        linestyle_idx = self.next_style_index % len(self.linestyle_cycle)
+        auto_color = self.color_cycle[color_idx]
+        auto_linestyle = self.linestyle_cycle[linestyle_idx]
+        self.next_style_index += 1
+
+        # 确保plane_angle是有效的数值
+        try:
+            plane_angle = float(self.plane_angle_combo.currentText())
+        except (ValueError, TypeError):
+            plane_angle = 0.0
+
         plot_info = {
             'freq_idx': self.freq_combo.currentIndex(),
             'freq_text': self.freq_combo.currentText(),
             'polarization': self.polarization_combo.currentText(),
             'plane_type': self.plane_type_combo.currentText(),
-            'plane_angle': float(self.plane_angle_combo.currentText()),
-            'line_style': self.line_style_combo.currentText(),
+            'plane_angle': plane_angle,
+            'line_style': auto_linestyle,
             'line_width': self.line_width_spin.value(),
-            'color': self.current_color,
+            'color': auto_color,
             'normalized': self.normalize_cb.isChecked()
         }
         
         self.current_plots.append(plot_info)
-        self.plot_list.addItem(f"Plot {len(self.current_plots)}")
+        
+        # 生成更详细的曲线描述
+        plane_symbol = 'θ' if plot_info['plane_type'] == 'Theta' else 'φ'
+        curve_desc = f"曲线{len(self.current_plots)}: {plot_info['freq_text']}, {plot_info['polarization']}, {plane_symbol}={int(plane_angle)}°"
+        self.plot_list.addItem(curve_desc)
         self.plot_list.setCurrentRow(len(self.current_plots) - 1)
+        
+        # 更新当前颜色和颜色预览
+        self.current_color = auto_color
+        self.color_preview.setStyleSheet(f'background-color: {self.current_color}; border: 1px solid black;')
+        
+        # 更新线型选择器显示
+        for i in range(self.line_style_combo.count()):
+            if self.line_style_combo.itemData(i) == auto_linestyle:
+                self.line_style_combo.blockSignals(True)
+                self.line_style_combo.setCurrentIndex(i)
+                self.line_style_combo.blockSignals(False)
+                break
+        
+        # 更新绘图
         self.update_plot()
         
     def remove_current_plot(self):
         """删除当前选中的曲线"""
-        if self.active_plot_index >= 0:
+        if self.active_plot_index >= 0 and self.active_plot_index < len(self.current_plots):
+            # 删除曲线数据
             self.current_plots.pop(self.active_plot_index)
-            self.plot_list.takeItem(self.active_plot_index)
+            
+            # 清空并重建曲线列表，以更新序号
+            self.plot_list.clear()
+            for i, plot in enumerate(self.current_plots):
+                plane_symbol = 'θ' if plot['plane_type'] == 'Theta' else 'φ'
+                curve_desc = f"曲线{i+1}: {plot['freq_text']}, {plot['polarization']}, {plane_symbol}={int(plot['plane_angle'])}°"
+                self.plot_list.addItem(curve_desc)
+            
+            # 如果还有曲线，选择前一个曲线
+            if self.current_plots:
+                new_index = min(self.active_plot_index, len(self.current_plots) - 1)
+                self.plot_list.setCurrentRow(new_index)
+            else:
+                self.active_plot_index = -1
+            
+            # 更新绘图
             self.update_plot()
             
     def on_plot_selected(self, index):
@@ -1172,15 +1237,56 @@ class MainWindow(QMainWindow):
         self.active_plot_index = index
         if index >= 0 and index < len(self.current_plots):
             plot = self.current_plots[index]
-            self.freq_combo.setCurrentIndex(plot['freq_idx'])
-            self.polarization_combo.setCurrentText(plot['polarization'])
-            self.plane_type_combo.setCurrentText(plot['plane_type'])
-            self.plane_angle_combo.setCurrentText(str(int(plot['plane_angle'])))
-            self.line_style_combo.setCurrentText(plot['line_style'])
-            self.line_width_spin.setValue(plot['line_width'])
-            self.current_color = plot['color']
-            self.normalize_cb.setChecked(plot['normalized'])
-            self.update_plot()
+            # 阻塞信号，避免重置其他曲线或触发不必要的更新
+            widgets = [
+                self.freq_combo,
+                self.polarization_combo,
+                self.plane_type_combo,
+                self.plane_angle_combo,
+                self.line_style_combo,
+                self.line_width_spin,
+                self.normalize_cb
+            ]
+            for w in widgets:
+                try:
+                    w.blockSignals(True)
+                except Exception:
+                    pass
+
+            try:
+                # 恢复曲线的所有设置
+                self.freq_combo.setCurrentIndex(plot['freq_idx'])
+                self.polarization_combo.setCurrentText(plot['polarization'])
+                self.plane_type_combo.setCurrentText(plot['plane_type'])
+                
+                # 更新切面角度选项（根据切面类型）
+                self.update_plane_angle_options()
+                
+                # 设置切面角度
+                self.plane_angle_combo.setCurrentText(str(int(plot['plane_angle'])))
+                
+                # 恢复线型、线宽和颜色设置
+                # 根据线型值找到对应的索引
+                for i in range(self.line_style_combo.count()):
+                    if self.line_style_combo.itemData(i) == plot['line_style']:
+                        self.line_style_combo.setCurrentIndex(i)
+                        break
+                
+                self.line_width_spin.setValue(plot['line_width'])
+                self.current_color = plot['color']
+                self.normalize_cb.setChecked(plot['normalized'])
+                
+                # 更新颜色预览
+                self.color_preview.setStyleSheet(f'background-color: {self.current_color}; border: 1px solid black;')
+                
+            finally:
+                for w in widgets:
+                    try:
+                        w.blockSignals(False)
+                    except Exception:
+                        pass
+
+            # 不需要重新绘图，因为只是加载设置，还没有修改
 
     def toggle_3d_gain_range(self, state):
         """切换3D数据范围控制"""
@@ -1197,24 +1303,7 @@ class MainWindow(QMainWindow):
         self.gain_steps_spin.setEnabled(not is_auto)
         self.update_plot()
 
-    def update_axis_direction(self, direction):
-        """更新坐标轴方向"""
-        direction_map = {
-            'N': 'N',  # 北向上
-            'S': 'S',  # 南向上
-            'E': 'E',  # 东向上
-            'W': 'W'   # 西向上
-        }
-        if not self.is_3d_view:
-            self.ax.set_theta_zero_location(direction_map[direction])
-            self.canvas.draw()
-            
-    def update_axis_angle(self, angle):
-        """更新坐标轴角度"""
-        if not self.is_3d_view:
-            self.ax.set_theta_direction(-1 if angle >= 0 else 1)
-            self.ax.set_theta_offset(np.deg2rad(angle))
-            self.canvas.draw()
+    # 移除坐标轴方向与角度的交互更新方法
             
     def insert_image(self):
         """插入图片"""
