@@ -66,7 +66,18 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
         else:
-            self.resize(1400, 900)
+            # 初始窗口设置为屏幕可用区域的四分之一，并居中
+            screen = self.screen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                target_w = max(avail.width() // 4, 800)
+                target_h = max(avail.height() // 4, 600)
+                self.resize(target_w, target_h)
+                frame_geo = self.frameGeometry()
+                frame_geo.moveCenter(avail.center())
+                self.move(frame_geo.topLeft())
+            else:
+                self.resize(1000, 700)
         
         # 恢复上次的窗口状态（最大化/普通）
         state = self.settings.value('windowState')
@@ -474,6 +485,8 @@ class MainWindow(QMainWindow):
         # 初始化为2D极坐标视图
         self.ax = self.figure.add_subplot(111, projection='polar')
         self.ax.grid(True)
+        # 根据窗口大小自适应字体
+        self.adjust_plot_fonts()
         self.canvas.draw()
 
     def on_mouse_press(self, event):
@@ -733,6 +746,9 @@ class MainWindow(QMainWindow):
         # 更新标题（在tight_layout之后，避免被覆盖）
         self.update_title()
 
+        # 同步字体大小（与窗口大小一致）
+        self.adjust_plot_fonts()
+
         # 确保图例在最顶层
         if hasattr(self.ax, 'legend_') and self.ax.legend_ is not None:
             self.ax.legend_.set_zorder(10)
@@ -762,7 +778,7 @@ class MainWindow(QMainWindow):
                     gains = self.data_reader.get_gain_data_theta_cut(plot['freq_idx'], phi_angle, plot['polarization'])
             else:
                 if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
-                    # 矩阵格式：交换显示，Phi选择显示Theta切面（固定phi，theta变化）
+                    # 矩阵格式：Phi选择显示Theta切面（固定phi，theta变化）
                     phi_angle = plane_angle
                     theta_angles = np.array(self.data_reader.get_theta_angles())
                     gains = self.data_reader.get_gain_data_theta_cut(plot['freq_idx'], phi_angle, plot['polarization'])
@@ -782,9 +798,34 @@ class MainWindow(QMainWindow):
             # 创建完整的360度数据
             if plane_type == 'Theta':
                 if hasattr(self.data_reader, 'file_format') and self.data_reader.file_format == 'matrix':
-                    # 矩阵格式：交换显示，Theta显示Phi切面（固定theta，phi变化）
-                    full_angles = np.concatenate([phi_angles, phi_angles + 180])
-                    full_gains = np.concatenate([gains, gains])
+                    # 矩阵格式：Theta切面需要拼接 +theta 与 -theta 两列，组成完整360°
+                    theta_angle = plane_angle
+                    phi_angles_src = np.array(self.data_reader.get_phi_angles())
+                    gains_pos = self.data_reader.get_gain_data_phi_cut(plot['freq_idx'], theta_angle, plot['polarization'])
+                    gains_neg = self.data_reader.get_gain_data_phi_cut(plot['freq_idx'], -theta_angle, plot['polarization'])
+
+                    # 归一化需要在合并后进行
+                    if plot['normalized']:
+                        combined_tmp = np.concatenate([gains_pos, gains_neg])
+                        combined_tmp = self.data_reader.normalize_data(combined_tmp)
+                        half_len = len(combined_tmp) // 2
+                        gains_pos = combined_tmp[:half_len]
+                        gains_neg = combined_tmp[half_len:]
+
+                    # 角度标准化到[0,360)
+                    phi_norm = (phi_angles_src % 360)
+                    # 判断是否已覆盖360°，若已覆盖则无需拼接
+                    if np.nanmax(phi_norm) - np.nanmin(phi_norm) >= 350:
+                        full_angles = phi_norm
+                        full_gains = gains_pos
+                    else:
+                        full_angles = np.concatenate([phi_norm, (phi_norm + 180) % 360])
+                        full_gains = np.concatenate([gains_pos, gains_neg])
+                        # 角度排序，确保线条连续
+                        sort_idx = np.argsort(full_angles)
+                        full_angles = full_angles[sort_idx]
+                        full_gains = full_gains[sort_idx]
+
                     angles_rad = self.data_reader.get_angles_in_radians(full_angles)
                     label = f"{plot['freq_text']}, {plot['polarization']}, θ={int(plane_angle)}°"
                 else:
@@ -893,6 +934,38 @@ class MainWindow(QMainWindow):
         
         # 更新增益刻度标签位置
         self.update_gain_label_angle()
+
+        # 确保图片位置（若启用居中锚定）
+        if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+            self.update_image_position()
+
+    def adjust_plot_fonts(self):
+        """根据窗口大小自适应调整极坐标刻度与标签字体，不影响曲线样式。"""
+        if not hasattr(self, 'ax'):
+            return
+        try:
+            # 基于窗口较短边计算基准字号
+            short_edge = max(1, min(self.width(), self.height()))
+            base = max(8, min(16, int(short_edge / 60)))
+
+            # 角度刻度字体
+            for label in self.ax.get_xticklabels():
+                label.set_fontsize(base)
+
+            # 径向刻度字体
+            for label in self.ax.get_yticklabels():
+                label.set_fontsize(base)
+
+            # 径向标签角度更新后，强制其字号
+            rlabel = self.ax.get_yaxis().get_label()
+            if rlabel is not None:
+                rlabel.set_fontsize(base)
+
+            # 图例字号保持与当前设置同步
+            if hasattr(self.ax, 'legend_') and self.ax.legend_ is not None:
+                self.ax.legend_.set_fontsize(self.legend_size)
+        except Exception:
+            pass
 
     def update_gain_label_angle(self, angle=None):
         """更新2D视图增益刻度标签的角度"""
@@ -1549,6 +1622,11 @@ class MainWindow(QMainWindow):
         # 更新图表布局
         if hasattr(self, 'figure'):
             self.figure.tight_layout()
+            # 字体自适应
+            self.adjust_plot_fonts()
+            # 保持图片在方向图中心（若锚定）
+            if hasattr(self, 'image_ax') and hasattr(self, 'current_image_data'):
+                self.update_image_position()
             self.canvas.draw()
 
     def closeEvent(self, event):
