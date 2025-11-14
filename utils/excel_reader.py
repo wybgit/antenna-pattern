@@ -110,14 +110,15 @@ class AntennaDataReader:
     def _detect_file_format(self):
         """
         Detect file format based on structure:
-        - Matrix format: Has 'Freqency' and 'Phi' in row 1 or 2, large matrix structure
+        - Matrix format: Has 'Freqency' and 'Phi' in row 1 or 2, with numeric data following
         - Legacy format: Has 'Theta Angle (degree)' headers in specific positions
         """
         if len(self.data) < 2:
             return 'legacy'
         
-        # Check for matrix format indicators in both row 1 and row 2 (for 3D-FREQ3.xlsx compatibility)
+        # Check for matrix format indicators in first few rows
         has_frequency_phi = False
+        matrix_header_row = -1
         
         # Check first few rows for matrix format indicators
         for row_idx in range(min(3, len(self.data))):
@@ -126,23 +127,71 @@ class AntennaDataReader:
                 cell_val = str(row.iloc[col_idx]).strip() if pd.notna(row.iloc[col_idx]) else ''
                 if 'freqency' in cell_val.lower() or 'phi' in cell_val.lower():
                     has_frequency_phi = True
+                    matrix_header_row = row_idx
                     break
             if has_frequency_phi:
                 break
         
-        # Check if it's a large matrix (typical of matrix format)
-        is_large_matrix = len(self.data) > 300 and len(self.data.columns) > 300
+        # If we found matrix format indicators, check if data follows matrix pattern
+        if has_frequency_phi and matrix_header_row != -1:
+            # Check if subsequent rows contain numeric frequency and phi data
+            data_start_row = matrix_header_row + 1
+            if data_start_row < len(self.data):
+                # Check first few data rows
+                numeric_data_rows = 0
+                for row_idx in range(data_start_row, min(data_start_row + 5, len(self.data))):
+                    row = self.data.iloc[row_idx]
+                    try:
+                        # Check if first two columns are numeric (frequency and phi)
+                        freq_val = float(row.iloc[0])
+                        phi_val = float(row.iloc[1])
+                        # Check if there are gain values in subsequent columns
+                        gain_count = 0
+                        for col_idx in range(2, min(10, len(row))):
+                            try:
+                                float(row.iloc[col_idx])
+                                gain_count += 1
+                            except:
+                                pass
+                        if gain_count >= 5:  # At least 5 gain values
+                            numeric_data_rows += 1
+                    except:
+                        pass
+                
+                # If we have numeric data following the header, it's matrix format
+                if numeric_data_rows >= 2:
+                    return 'matrix'
         
-        if has_frequency_phi and is_large_matrix:
+        # Check for legacy format indicators
+        has_theta_angle_header = False
+        for row_idx in range(min(10, len(self.data))):
+            row = self.data.iloc[row_idx]
+            for col_idx in range(min(5, len(row))):
+                cell_val = str(row.iloc[col_idx]).strip() if pd.notna(row.iloc[col_idx]) else ''
+                if 'theta angle' in cell_val.lower():
+                    has_theta_angle_header = True
+                    break
+            if has_theta_angle_header:
+                break
+        
+        # Default to matrix if we have frequency/phi headers, otherwise legacy
+        if has_frequency_phi:
             return 'matrix'
-        else:
+        elif has_theta_angle_header:
             return 'legacy'
+        else:
+            # Default fallback - check file size
+            if len(self.data) > 100 and len(self.data.columns) > 50:
+                return 'matrix'
+            else:
+                return 'legacy'
     
     def _process_matrix_format(self):
         """
-        Process matrix format data (3D-FREQ2.xlsx and 3D-FREQ3.xlsx style):
+        Process matrix format data (3D-FREQ2.xlsx, 3D-FREQ3.xlsx, and 3D-FREQ-inter-small.xlsx style):
         - For 3D-FREQ2.xlsx: Row 1 contains theta angles, Row 2 has headers
         - For 3D-FREQ3.xlsx: Row 2 has headers (no first row numbers), data starts from row 3
+        - For 3D-FREQ-inter-small.xlsx: Row 1 has headers with theta angles embedded in strings
         - Data rows: Frequency, Phi angle, and gain values
         """
         if self.debug:
@@ -181,15 +230,26 @@ class AntennaDataReader:
             if pd.isna(cell_val):
                 break
             try:
-                # Skip text headers
+                # Handle different theta angle formats
                 if isinstance(cell_val, str):
-                    continue
-                theta_val = float(cell_val)
-                # Check if value is in radians (typically < 7 for 0-360 degrees)
-                if theta_val <= 7:
-                    theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+                    # Check for embedded theta angles in strings like "E Total. dB=-3.14159"
+                    if 'dB=' in cell_val:
+                        theta_val = float(cell_val.split('dB=')[1])
+                        # Check if value is in radians (typically between -π and π)
+                        if abs(theta_val) <= np.pi + 0.1:  # Allow small tolerance
+                            theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+                        else:
+                            theta_angles.append(theta_val)  # Already in degrees
+                    else:
+                        continue  # Skip other string headers
                 else:
-                    theta_angles.append(theta_val)  # Already in degrees
+                    # Numeric value
+                    theta_val = float(cell_val)
+                    # Check if value is in radians (typically < 7 for 0-360 degrees)
+                    if abs(theta_val) <= 7:
+                        theta_angles.append(np.degrees(theta_val))  # Convert from radians to degrees
+                    else:
+                        theta_angles.append(theta_val)  # Already in degrees
             except (ValueError, TypeError):
                 break
         
@@ -204,7 +264,7 @@ class AntennaDataReader:
                     if isinstance(cell_val, str):
                         continue
                     theta_val = float(cell_val)
-                    if theta_val <= 7:
+                    if abs(theta_val) <= 7:
                         theta_angles.append(np.degrees(theta_val))
                     else:
                         theta_angles.append(theta_val)
@@ -215,6 +275,7 @@ class AntennaDataReader:
             print(f"[*] Extracted {len(theta_angles)} theta angles from header")
             if theta_angles:
                 print(f"[*] Theta range: {theta_angles[0]:.1f}° to {theta_angles[-1]:.1f}°")
+                print(f"[*] Theta step size: {(theta_angles[-1] - theta_angles[0])/(len(theta_angles)-1):.2f}°")
         
         # Process data rows (starting from header_row_idx + 1)
         data_by_frequency = {}
@@ -236,8 +297,8 @@ class AntennaDataReader:
                 
                 # Extract phi angle (column 1) 
                 phi_angle = float(row.iloc[1])
-                # Check if phi angle is in radians
-                if phi_angle <= 7:  # Likely in radians
+                # Check if phi angle is in radians (more flexible detection)
+                if abs(phi_angle) <= np.pi + 0.1:  # Allow small tolerance for π
                     phi_angle_deg = np.degrees(phi_angle)
                 else:  # Already in degrees
                     phi_angle_deg = phi_angle
@@ -283,6 +344,7 @@ class AntennaDataReader:
             if self.debug:
                 print(f"[*] Processed frequency {frequency} MHz:")
                 print(f"    Phi angles: {len(phi_angles)} ({phi_angles[0]:.1f}° to {phi_angles[-1]:.1f}°)")
+                print(f"    Phi step size: {(phi_angles[-1] - phi_angles[0])/(len(phi_angles)-1):.2f}°")
                 print(f"    Gain matrix shape: {gains_transposed.shape}")
     
     def _process_legacy_format(self):
